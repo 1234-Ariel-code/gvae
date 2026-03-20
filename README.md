@@ -54,63 +54,22 @@ gvae/
 ├── reproducibility.md
 ├── Makefile
 │
-├── configs/
-│   ├── datasets/
-│   ├── models/
-│   └── experiments/
-│
-├── data/
-│   ├── README.md
-│   ├── sample_data/
-│   └── templates/
-│
-├── src/
-│   └── gvae/
-│       ├── data/
-│       ├── models/
-│       ├── training/
-│       ├── evaluation/
-│       ├── xai/
-│       ├── biology/
-│       ├── gwas/
-│       ├── figures/
-│       └── utils/
-│
 ├── scripts/
-│   ├── train_gvae.py
-│   ├── train_baselines.py
-│   ├── evaluate_reconstruction.py
-│   ├── evaluate_robustness.py
-│   ├── run_classification.py
-│   ├── run_shap_prioritization.py
-│   ├── run_snp_to_gene.py
-│   ├── run_enrichment.py
-│   ├── run_gwas_vs_xai.py
-│   ├── build_main_figures.py
-│   └── build_supplementary_outputs.py
+│   ├── run_qc_and_gvae.py   
+│   ├── run_xai_prioritization.py
+│   ├── run_gene_pathways_relevance.py  
+│   └── run_gwas_vs_xai.py 
 │
 ├── slurm/
-│   ├── preprocess_qc_ld.slurm
-│   ├── train_gvae.slurm
-│   ├── train_baselines.slurm
-│   ├── run_shap_prioritization.slurm
-│   ├── run_snp_to_gene.slurm
-│   ├── run_enrichment.slurm
-│   ├── run_gwas_vs_xai.slurm
-│   ├── run_classification.slurm
-│   └── build_figures.slurm
+│   ├── run_qc_and_gvae.slurm
+│   ├── run_xai_prioritization.slurm
+│   ├── run_gene_pathways_relevance.slurm
+│   └── run_gwas_vs_xai.slurm 
 │
 ├── paper/
 │   ├── manuscript/
 │   ├── main_figures/
 │   ├── supplementary_information/
-│   ├── supplementary_methods/
-│   └── source_data/
-│
-├── docs/
-│   ├── reviewer_guide.md
-│   ├── reproduction_guide.md
-│   ├── methodology.md
-│   └── output_index.md
+│   └── supplementary_methods/ 
 │
 └── tests/

@@ -29,8 +29,8 @@ Across 18 genomic datasets, gVAE shows improved latent robustness, favorable rec
 - Uses **multiple posterior latent samples** rather than a single draw
 - Aggregates latent samples through **quantile-guided gating**
 - Improves **representation robustness** under genotype perturbation
-- Maintains favorable **reconstruction quality** using metrics such as **R²** and **MSE**
-- Supports downstream **disease classification** using learned latent representations
+- Maintains favorable **reconstruction quality** using metrics such as **R²** and **MSE** over baseline VAE models
+- Supports downstream **disease classification** using learned latent representations and outperforms baseline VAE models in AUC, Accuracy metrics
 - Enables biological interpretation through:
   - **SHAP-based SNP attribution**
   - **SNP prioritization**

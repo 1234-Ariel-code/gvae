@@ -4,11 +4,6 @@
 
 <img width="1376" height="768" alt="canvas-image-1-1773162105249" src="https://github.com/user-attachments/assets/aedc1ad9-923d-437c-b02a-2efd193dc951" />
 
-
-This repository accompanies the manuscript:
-
-**Genomic Variational Autoencoder enables stable representation learning in high-dimensional genomic data with small sample sizes**
-
 ---
 
 ## Overview

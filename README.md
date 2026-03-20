@@ -19,6 +19,8 @@ Unlike standard VAE implementations that typically rely on a single posterior dr
 
 Across 18 genomic datasets, gVAE shows improved latent robustness, favorable reconstruction behavior, competitive downstream disease classification, and strong biological coherence.
 
+<img width="1376" height="768" alt="canvas-image-1-1773694468470" src="https://github.com/user-attachments/assets/4086bfe7-3c42-46ed-8ef6-30ea17f24b64" />
+
 ---
 
 ## Key contributions

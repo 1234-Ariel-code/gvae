@@ -55,13 +55,15 @@ gvae/
 ├── Makefile
 │
 ├── scripts/
-│   ├── run_qc_and_gvae.py   
+│   ├── run_qc_and_gvae.py
+|   ├── run_classification.py
 │   ├── run_xai_prioritization.py
 │   ├── run_gene_pathways_relevance.py  
 │   └── run_gwas_vs_xai.py 
 │
 ├── slurm/
 │   ├── run_qc_and_gvae.slurm
+|   ├── run_classification.slurm
 │   ├── run_xai_prioritization.slurm
 │   ├── run_gene_pathways_relevance.slurm
 │   └── run_gwas_vs_xai.slurm 

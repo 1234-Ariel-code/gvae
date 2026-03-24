@@ -11,7 +11,7 @@ This repository is organized in **two layers**:
 
 ## What is included
 
-## Exact code preservation
+## Code
 
 The exact scripts we run on real data analysis is reported at `archive/`. 
 

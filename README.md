@@ -1,25 +1,28 @@
 # gVAE: Genomic Variational Autoencoder
 
-Public, reviewer-friendly repository scaffold for the gVAE manuscript.
+Public, user-friendly repository scaffold for the gVAE manuscript.
+
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/3b239932-ae6e-4e07-bb28-be85196cd8bf" />
+
+
 
 This repository is organized in **two layers**:
 
-1. **Reviewer demo layer**: fully runnable on synthetic genotype cohorts, with binary or quantitative traits, model comparison, SNP prioritization, mock biology summaries, and a Streamlit explorer.
+1. **Demo layer**: fully runnable on synthetic genotype cohorts, with binary or quantitative traits, model comparison, SNP prioritization, mock biology summaries, and a Streamlit explorer.
 2. **Controlled-data analysis layer**: the actual analysis and figure-generation scripts used for the manuscript workflow, adapted into a public repository structure. These scripts require user-supplied genotype/phenotype files and exported summary tables because real patient data cannot be shared publicly.
 
 ## What is included
 
 ## Exact code preservation
 
-The exact large pasted script bundle you provided is preserved unchanged at `archive/original_user_pasted_code.txt`. The organized runnable repo keeps public wrappers and structured internal scripts alongside that untouched archive so you have both: the exact pasted source bundle and a reviewer-friendly layout.
+The exact scripts we run on real data analysis is reported at `archive/`. 
 
 
 - a runnable Python package under `gvae/`
 - a Streamlit app under `app/streamlit_app.py`
 - synthetic data generation and end-to-end demo scripts under `scripts/`
-- manuscript figure scripts under `figure_scripts/`
+- manuscript figure scripts under `archive/`
 - the original analysis scripts and SLURM examples under `scripts/internal/` and `scripts/hpc/`
-- documentation for quick start, repository structure, and manuscript mapping under `docs/`
 
 ## Repository structure
 
@@ -27,7 +30,6 @@ The exact large pasted script bundle you provided is preserved unchanged at `arc
 .
 ├── app/
 │   └── streamlit_app.py
-├── docs/
 ├── examples/
 │   ├── configs/
 │   ├── manuscript_summary_tables/
@@ -50,7 +52,7 @@ The exact large pasted script bundle you provided is preserved unchanged at `arc
 └── README.md
 ```
 
-## Reviewer quick start
+## User quick start
 
 ### 1. Create an environment
 
@@ -118,14 +120,14 @@ This produces:
 - mock gene and pathway summaries
 - PNG plots for reviewer inspection
 
-The synthetic data generator now also exports a **PLINK-compatible bundle** so you can mimic the real internal workflow on synthetic cohorts:
+The synthetic data generator now also exports a **PLINK-compatible bundle** so we can mimic the real internal workflow on synthetic cohorts:
 
 - `demo.bed`, `demo.bim`, `demo.fam`
 - `demo_origin.tped`, `demo_origin.tfam`, `demo_origin.phen`
 - `demo_filtered.csv`
 - `demo_gwas.assoc` for binary traits or `demo_gwas.qassoc` for quantitative traits
 
-That means the public synthetic data can be used either with the lightweight reviewer demo scripts or with the more pipeline-faithful internal scripts under `scripts/internal/`.
+That means the public synthetic data can be used either with the lightweight user demo scripts or with the more pipeline-faithful internal scripts under `scripts/internal/`.
 
 ### 3. Launch the interactive Streamlit app
 
@@ -148,7 +150,7 @@ Then it runs a synthetic end-to-end analysis live in the browser.
 
 ## Controlled-data analysis layer
 
-The files under `scripts/internal/` and `scripts/hpc/` contain the actual manuscript analysis code you provided, reorganized for GitHub. They are included for transparency and reproducibility, but they require:
+The files under `archive/` contain the actual manuscript analysis code. They are included for transparency and reproducibility, but they require:
 
 - user-supplied genotype and phenotype files
 - user-supplied GWAS summary statistics where applicable

@@ -88,7 +88,7 @@ This produces:
 - downstream prediction metrics
 - top SNP summaries
 - mock gene and pathway summaries
-- PNG plots for reviewer inspection
+- PNG plots 
 
 The synthetic data generator now also exports a **PLINK-compatible bundle** so we can mimic the real internal workflow on synthetic cohorts:
 

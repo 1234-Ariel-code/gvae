@@ -129,17 +129,6 @@ The files under `archive/` contain the actual manuscript analysis code. They are
 
 These scripts are not expected to run out of the box on GitHub-hosted public data because the real patient data cannot be distributed.
 
-## Figure generation
-
-The R scripts in `figure_scripts/` now contain real plotting code rather than placeholders.
-
-- `figure2_robustness_distributions.R`
-- `figure3_reconstruction_and_prediction.R`
-- `figure4_gene_pathway_relevance.R`
-- `figure5_dynamic_representation_vs_gwas.R`
-
-Each script is written to support a public-repo workflow using relative paths or command-line arguments. Example summary tables for demonstration are stored in `examples/manuscript_summary_tables/`.
-
 ## Notes on privacy
 
 This public repository does **not** include real genotype or phenotype data. The synthetic demo is intended to show how the software behaves and how the manuscript workflow is organized without exposing patient data.

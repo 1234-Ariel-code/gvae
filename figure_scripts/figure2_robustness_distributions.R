@@ -3,7 +3,6 @@
 # comparing BaselineVAE, Best BetaVAE, and gVAE
 # Revised version: clearer separation between disease blocks
 # ============================================================
-
 library(tidyverse)
 library(patchwork)
 library(scales)

@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """
 End-to-end SHAP → SNP→Gene → Pathway enrichment pipeline with **LV-level pathway plots**
 PLUS: ✅ Gene-level disease relevance scoring using DisGeNET (API or TSV).

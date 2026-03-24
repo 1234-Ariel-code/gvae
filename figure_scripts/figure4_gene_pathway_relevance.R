@@ -1,5 +1,4 @@
 # ============================================================
-# High-impact journal composite figure:
 # Gene relevance + pathway relevance
 #
 # Public-repo version:

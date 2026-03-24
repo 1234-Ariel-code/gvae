@@ -3,9 +3,9 @@
 
 This folder points to the untouched raw pasted-code archive included at:
 
-- `archive/original_user_pasted_code.txt`
+- `archive/`
 
-That file preserves the exact large pasted script bundle as provided in chat.
+That folder preserves the exact large scripts used on real datasets on our hpc cluster.
 The runnable public repository keeps organized versions of the pipeline under:
 
 - `scripts/internal/`
@@ -13,4 +13,4 @@ The runnable public repository keeps organized versions of the pipeline under:
 - `figure_scripts/`
 - `scripts/`
 
-Use the archive file when you want the original pasted source bundle exactly as provided.
+Use the archive files/scripts when you want to run the complete gVAE pipeline on real datasets on your cluster.

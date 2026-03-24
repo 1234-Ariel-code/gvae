@@ -8,4 +8,4 @@ Each generated bundle includes:
 - `demo.bed`, `demo.bim`, `demo.fam`
 - `demo_gwas.assoc` or `demo_gwas.qassoc`
 
-This lets reviewers run either the lightweight public demo or a synthetic version of the original PLINK-based pipeline.
+We run either the lightweight public demo or a synthetic version of the original PLINK-based pipeline.

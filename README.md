@@ -1,12 +1,8 @@
-Genomic Variational Autoencoder enables stable representation learning in high-dimensional genomic data with small sample sizes
+# gVAE: Genomic Variational Autoencoder
 
-<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
+Public, user-friendly repository scaffold for the gVAE manuscript.
 
-Genomic data are difficult to model because they combine extreme dimensionality with limited sample size, often leading to unstable representation learning and limited biological interpretability. Variational autoencoders offer a probabilistic framework for learning latent structure, but standard implementations typically rely on a single posterior draw, which may underuse latent uncertainty in small-sample settings. Here we introduce Genomic Variational Autoencoder (gVAE), a quantile-gated variational autoencoder that integrates multiple latent samples to improve representation stability while preserving biologically meaningful variation. Across eighteen genomic datasets, gVAE yields more stable latent representations, favourable reconstruction behaviour and improved downstream classification. Coupled with explainable artificial intelligence and gene- and pathway-level analyses, gVAE identifies coherent disease biology, recovers disease-relevant signals and reveals associations beyond conventional genome-wide association-based ranking. These results establish gVAE as a robust framework for genomic representation learning under high-dimensional, small-sample conditions.
-
-Keywords: genomic representation learning; variational autoencoder; high-dimensional genomic data; small-sample learning; latent space interpretability; explainable artificial intelligence (XAI); quantile-gated learning; pathway enrichment; genome-wide association study (GWAS)
-
-
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/239fd223-b02d-49f1-88d9-f6e70664ce5f" />
 
 This repository is organized in **two layers**:
 

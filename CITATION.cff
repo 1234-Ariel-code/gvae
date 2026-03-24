@@ -1,20 +1,39 @@
 cff-version: 1.2.0
-title: "gVAE: Genomic Variational Autoencoder"
+title: "Genomic Variational Autoencoder enables stable representation learning in high-dimensional genomic data with small sample sizes"
 message: "If you use this software, please cite the associated manuscript and this repository."
 type: software
 authors:
   - family-names: "Kemogne Kamdoum"
     given-names: "Ariel Ghislain"
+  - family-names: "Weeraman"
+    given-names: "Janith"
+  - family-names: "Wang"
+    given-names: "Dinghao"
+  - family-names: "Enoma"
+    given-names: "David O."
+  - family-names: "Li"
+    given-names: "Caifeng"
+  - family-names: "Sridharan"
+    given-names: "Ganeshiny"
+  - family-names: "Chernenkoff"
+    given-names: "Sasha"
+  - family-names: "Chekouo"
+    given-names: "Thierry"
+  - family-names: "Zhang"
+    given-names: "Qingrun"
   - family-names: "Long"
     given-names: "Quan"
-repository-code: "https://github.com/your-org/gvae"
+repository-code: "https://github.com/1234-Ariel-code/gvae"
 license: "MIT"
 version: "0.1.0"
 date-released: "2026-03-23"
 keywords:
-  - genomics
+  - genomic representation learning
   - variational autoencoder
-  - representation learning
-  - SNP
-  - explainable AI
+  - high-dimensional genomic data
+  - small-sample learning
+  - latent space interpretability
+  - explainable artificial intelligence
+  - quantile-gated learning
   - pathway enrichment
+  - genome-wide association study

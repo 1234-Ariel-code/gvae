@@ -1,7 +1,29 @@
-#!/usr/bin/env python3 # -*- coding: utf-8 -*-
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
-End-to-end SHAP → SNP→Gene → Pathway enrichment pipeline with **LV-level pathway plots** PLUS: ✅ Gene-level disease relevance scoring using DisGeNET (API or TSV). Keeps everything you already had: - per-sample analysis (S1..) - pooled analysis - ALL_SAMPLES aggregation (POOLED_BY_LV and POOLED_BY_SAMPLELV) - chr_pos -> rsID bridge via --bim_file for cS2G merges - Enrichr/GMT pathway heatmaps + LV bubble plots + within-sample aggregation NEW (Gene analysis): - --run_gene_analysis enables gene-level disease relevance: * DisGeNET API mode (recommended): --disgenet_mode api Uses env or CLI credentials to fetch token, then queries GDA-by-gene. * DisGeNET TSV mode: --disgenet_mode tsv --disgenet_tsv <file.tsv> Auto-detects schema: diseaseId/UMLS, gene symbol, score, etc. - Disease matching: * Exact match on diseaseId/UMLS CUI via --disgenet_disease_ids * Fallback substring match via --disgenet_disease_name (case-insensitive) - Outputs under: <out_root>/gene_relevance/
+End-to-end SHAP → SNP→Gene → Pathway enrichment pipeline with **LV-level pathway plots**
+PLUS: ✅ Gene-level disease relevance scoring using DisGeNET (API or TSV).
+
+Keeps everything you already had:
+- per-sample analysis (S1..)
+- pooled analysis
+- ALL_SAMPLES aggregation (POOLED_BY_LV and POOLED_BY_SAMPLELV)
+- chr_pos -> rsID bridge via --bim_file for cS2G merges
+- Enrichr/GMT pathway heatmaps + LV bubble plots + within-sample aggregation
+
+NEW (Gene analysis):
+- --run_gene_analysis enables gene-level disease relevance:
+    * DisGeNET API mode (recommended): --disgenet_mode api
+      Uses env or CLI credentials to fetch token, then queries GDA-by-gene.
+    * DisGeNET TSV mode: --disgenet_mode tsv --disgenet_tsv <file.tsv>
+      Auto-detects schema: diseaseId/UMLS, gene symbol, score, etc.
+- Disease matching:
+    * Exact match on diseaseId/UMLS CUI via --disgenet_disease_ids
+    * Fallback substring match via --disgenet_disease_name (case-insensitive)
+- Outputs under: <out_root>/gene_relevance/
 """
+
 import os
 import re
 import glob
@@ -10,249 +32,2377 @@ import json
 import time
 import argparse
 import warnings
-import hashlib from datetime
-import datetime from typing
-import List, Optional, Dict, Tuple, Iterable
+import hashlib
+from datetime import datetime
+from typing import List, Optional, Dict, Tuple, Iterable
+
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt from matplotlib.backends.backend_pdf
-import PdfPages from matplotlib.patches
-import FancyBboxPatch, ConnectionPatch from statsmodels.stats.multitest
-import multipletests warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.patches import FancyBboxPatch, ConnectionPatch
+
+from statsmodels.stats.multitest import multipletests
+
+warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
+
 # Optional: gseapy for Enrichr mode
-try: from gseapy
-import enrichr as _enrichr GSEAPY_AVAILABLE = True
-except Exception: GSEAPY_AVAILABLE = False # Optional: SciPy for dendrograms + hypergeom
 try:
-import scipy.cluster.hierarchy as sch from scipy.spatial.distance
-import squareform from scipy.stats
-import hypergeom SCIPY_OK = True
-except Exception: SCIPY_OK = False # Optional: requests for DisGeNET API
+    from gseapy import enrichr as _enrichr
+    GSEAPY_AVAILABLE = True
+except Exception:
+    GSEAPY_AVAILABLE = False
+
+# Optional: SciPy for dendrograms + hypergeom
 try:
-import requests REQUESTS_OK = True
-except Exception: REQUESTS_OK = False
-# ============================================================================= # Utilities
+    import scipy.cluster.hierarchy as sch
+    from scipy.spatial.distance import squareform
+    from scipy.stats import hypergeom
+    SCIPY_OK = True
+except Exception:
+    SCIPY_OK = False
+
+# Optional: requests for DisGeNET API
+try:
+    import requests
+    REQUESTS_OK = True
+except Exception:
+    REQUESTS_OK = False
+
+
 # =============================================================================
+# Utilities
+# =============================================================================
+
 def _bh_fdr(pvals: np.ndarray) -> np.ndarray:
-"""Benjamini–Hochberg FDR."""
-if len(pvals) == 0: return np.array([]) _, q, _, _ = multipletests(pvals, method="fdr_bh") return q
+    """Benjamini–Hochberg FDR."""
+    if len(pvals) == 0:
+        return np.array([])
+    _, q, _, _ = multipletests(pvals, method="fdr_bh")
+    return q
+
+
 def _safe_read_table(path: str, sep: str = "\t", low_memory: bool = False) -> pd.DataFrame:
-"""Robust table reader + cleans header/whitespace."""
-try: df = pd.read_csv(path, sep=sep, low_memory=low_memory)
-except Exception as e: raise RuntimeError(f"Failed to read: {path}\n{e}") df.columns = df.columns.astype(str).str.strip() for c in df.columns: if pd.api.types.is_object_dtype(df[c]): df[c] = df[c].astype(str).str.strip() return df
-def _write_empty_log(output_dir: str, reason_lines: List[str], fname: str = "empty_results_log.txt"): os.makedirs(output_dir, exist_ok=True) logp = os.path.join(output_dir, fname) with open(logp, "w") as f: for line in reason_lines: f.write(line.rstrip() + "\n") print(f"[WARN] No results written. See {logp}")
-def _write_run_params(output_dir: str, args: argparse.Namespace, extras: Optional[Dict] = None): os.makedirs(output_dir, exist_ok=True) out = {"timestamp": datetime.now().isoformat(), "cli": vars(args)} if extras: out["extras"] = extras with open(os.path.join(output_dir, "run_parameters.json"), "w") as f: json.dump(out, f, indent=2, sort_keys=True)
-def _hash_list(x: List[str]) -> str: return hashlib.md5(("|".join(map(str, x))).encode()).hexdigest()
+    """Robust table reader + cleans header/whitespace."""
+    try:
+        df = pd.read_csv(path, sep=sep, low_memory=low_memory)
+    except Exception as e:
+        raise RuntimeError(f"Failed to read: {path}\n{e}")
+    df.columns = df.columns.astype(str).str.strip()
+    for c in df.columns:
+        if pd.api.types.is_object_dtype(df[c]):
+            df[c] = df[c].astype(str).str.strip()
+    return df
+
+
+def _write_empty_log(output_dir: str, reason_lines: List[str], fname: str = "empty_results_log.txt"):
+    os.makedirs(output_dir, exist_ok=True)
+    logp = os.path.join(output_dir, fname)
+    with open(logp, "w") as f:
+        for line in reason_lines:
+            f.write(line.rstrip() + "\n")
+    print(f"[WARN] No results written. See {logp}")
+
+
+def _write_run_params(output_dir: str, args: argparse.Namespace, extras: Optional[Dict] = None):
+    os.makedirs(output_dir, exist_ok=True)
+    out = {"timestamp": datetime.now().isoformat(), "cli": vars(args)}
+    if extras:
+        out["extras"] = extras
+    with open(os.path.join(output_dir, "run_parameters.json"), "w") as f:
+        json.dump(out, f, indent=2, sort_keys=True)
+
+
+def _hash_list(x: List[str]) -> str:
+    return hashlib.md5(("|".join(map(str, x))).encode()).hexdigest()
+
+
 def _num_key_from_group(group: str) -> int:
-"""Extract first integer from group label (e.g., LD_17 → 17) for numeric sort."""
-head = group.split(":")[0] m = re.search(r"\d+", head) return int(m.group()) if m else 0
+    """Extract first integer from group label (e.g., LD_17 → 17) for numeric sort."""
+    head = group.split(":")[0]
+    m = re.search(r"\d+", head)
+    return int(m.group()) if m else 0
+
+
 def _detect_gene_col(df: pd.DataFrame) -> str:
-"""Try a few common gene columns, else fallback to best object-like column."""
-candidates = [ "GENE", "Gene", "geneSymbol", "gene", "SYMBOL", "Symbol", "symbol", "gene_symbol", "GeneSymbol", "hgnc_symbol", "ENSG", "ENSG_ID", "ensembl_gene_id", "EnsemblID", "gene_id", "Gene_Symbol" ] lower = {c.lower(): c for c in df.columns} for c in candidates: if c.lower() in lower: return lower[c.lower()] obj_cols = [c for c in df.columns if df[c].dtype == object] if not obj_cols: raise ValueError(f"Could not detect a gene column. Columns: {list(df.columns)[:30]}") lens = [(c, df[c].dropna().nunique()) for c in obj_cols] lens.sort(key=lambda x: x[1], reverse=True) return lens[0][0]
+    """Try a few common gene columns, else fallback to best object-like column."""
+    candidates = [
+        "GENE", "Gene", "geneSymbol", "gene", "SYMBOL", "Symbol", "symbol",
+        "gene_symbol", "GeneSymbol", "hgnc_symbol",
+        "ENSG", "ENSG_ID", "ensembl_gene_id", "EnsemblID", "gene_id",
+        "Gene_Symbol"
+    ]
+    lower = {c.lower(): c for c in df.columns}
+    for c in candidates:
+        if c.lower() in lower:
+            return lower[c.lower()]
+    obj_cols = [c for c in df.columns if df[c].dtype == object]
+    if not obj_cols:
+        raise ValueError(f"Could not detect a gene column. Columns: {list(df.columns)[:30]}")
+    lens = [(c, df[c].dropna().nunique()) for c in obj_cols]
+    lens.sort(key=lambda x: x[1], reverse=True)
+    return lens[0][0]
+
+
 def _read_gmt(path: str) -> Dict[str, set]:
-"""Read GMT -> dict(pathway -> set(genes))."""
-pathways = {} with open(path, "r", encoding="utf-8") as f: for line in f: parts = line.strip().split("\t") if len(parts) < 3: continue name = parts[0] genes = set(g.strip() for g in parts[2:] if g.strip()) pathways[name] = genes return pathways
+    """Read GMT -> dict(pathway -> set(genes))."""
+    pathways = {}
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            parts = line.strip().split("\t")
+            if len(parts) < 3:
+                continue
+            name = parts[0]
+            genes = set(g.strip() for g in parts[2:] if g.strip())
+            pathways[name] = genes
+    return pathways
+
+
 def _hypergeo_pval(k: int, K: int, n: int, N: int) -> float:
-"""Right-tail hypergeometric p-value."""
-if not SCIPY_OK: raise ImportError("SciPy is required for GMT hypergeometric enrichment.") return float(hypergeom.sf(k - 1, N, K, n))
-def _pick_adj_p_column(df: pd.DataFrame) -> Optional[str]: if df is None or df.empty: return None candidates = [ "Adjusted P-value", "Adjusted P value", "Adjusted P-Value", "Adj P", "adj_p", "FDR", "FDR q-value", "q-value", "qvalue", "_FDR_used" ] cols_norm = {c.lower(): c for c in df.columns} for want in candidates: if want.lower() in cols_norm: return cols_norm[want.lower()] return None
-def _pick_raw_p_column(df: pd.DataFrame) -> Optional[str]: if df is None or df.empty: return None candidates = ["P-value", "P value", "P-Value", "pvalue", "p-value", "p_val"] cols_norm = {c.lower(): c for c in df.columns} for want in candidates: if want.lower() in cols_norm: return cols_norm[want.lower()] return None
+    """Right-tail hypergeometric p-value."""
+    if not SCIPY_OK:
+        raise ImportError("SciPy is required for GMT hypergeometric enrichment.")
+    return float(hypergeom.sf(k - 1, N, K, n))
+
+
+def _pick_adj_p_column(df: pd.DataFrame) -> Optional[str]:
+    if df is None or df.empty:
+        return None
+    candidates = [
+        "Adjusted P-value", "Adjusted P value", "Adjusted P-Value",
+        "Adj P", "adj_p", "FDR", "FDR q-value", "q-value", "qvalue", "_FDR_used"
+    ]
+    cols_norm = {c.lower(): c for c in df.columns}
+    for want in candidates:
+        if want.lower() in cols_norm:
+            return cols_norm[want.lower()]
+    return None
+
+
+def _pick_raw_p_column(df: pd.DataFrame) -> Optional[str]:
+    if df is None or df.empty:
+        return None
+    candidates = ["P-value", "P value", "P-Value", "pvalue", "p-value", "p_val"]
+    cols_norm = {c.lower(): c for c in df.columns}
+    for want in candidates:
+        if want.lower() in cols_norm:
+            return cols_norm[want.lower()]
+    return None
+
+
 def _parse_overlap_k(series: pd.Series) -> pd.Series:
-"""Parse Overlap like '7/120' -> 7."""
-out = [] for s in series.astype(str).fillna(""):
-try: out.append(int(s.split("/")[0]))
-except Exception: out.append(np.nan) return pd.Series(out, index=series.index)
+    """Parse Overlap like '7/120' -> 7."""
+    out = []
+    for s in series.astype(str).fillna(""):
+        try:
+            out.append(int(s.split("/")[0]))
+        except Exception:
+            out.append(np.nan)
+    return pd.Series(out, index=series.index)
+
+
 def _display_as_lv(label: str) -> str:
-"""Display-only rename LD -> LV."""
-s = str(label) s = s.replace("LD_", "LV_").replace("LD", "LV") return s
-# ============================================================================= # ✅ BIM mapping helpers (chr_pos -> rsID)
+    """Display-only rename LD -> LV."""
+    s = str(label)
+    s = s.replace("LD_", "LV_").replace("LD", "LV")
+    return s
+
+
 # =============================================================================
+# ✅ BIM mapping helpers (chr_pos -> rsID)
+# =============================================================================
+
 def _parse_shap_chr_bp(s: str) -> Tuple[Optional[str], Optional[int]]:
-"""
-"chr1_87370759_A_T_b38" -> ("1", 87370759) Robust to "1_8737..." too.
-"""
-try: parts = str(s).strip().split("_") if len(parts) < 2: return None, None chrom = parts[0].replace("chr", "") bp = int(parts[1]) return chrom, bp
-except Exception: return None, None
+    """
+    "chr1_87370759_A_T_b38" -> ("1", 87370759)
+    Robust to "1_8737..." too.
+    """
+    try:
+        parts = str(s).strip().split("_")
+        if len(parts) < 2:
+            return None, None
+        chrom = parts[0].replace("chr", "")
+        bp = int(parts[1])
+        return chrom, bp
+    except Exception:
+        return None, None
+
+
 def _load_bim_map(bim_file: str) -> pd.DataFrame:
-"""
-BIM: CHR SNP CM BP A1 A2 Returns CHR,BP,RSID unique.
-"""
-if not bim_file or not os.path.exists(bim_file): raise FileNotFoundError(f"--bim_file not found: {bim_file}") bim = pd.read_csv( bim_file, sep=r"\s+", header=None, names=["CHR", "RSID", "CM", "BP", "A1", "A2"], dtype={"CHR": str, "RSID": str}, ) bim["CHR"] = bim["CHR"].astype(str).str.replace("chr", "", regex=False) bim["BP"] = pd.to_numeric(bim["BP"], errors="coerce").astype("Int64") bim = bim.dropna(subset=["BP", "RSID"]) return bim[["CHR", "BP", "RSID"]].drop_duplicates()
-def _detect_s2g_snp_col(s2g_df: pd.DataFrame) -> str: for c in s2g_df.columns: if c.lower() in {"snp", "rsid", "snp_id"}: return c raise ValueError(f"Could not detect SNP column in s2g file. Columns: {list(s2g_df.columns)[:30]}")
-def _map_shap_to_genes( shap_df: pd.DataFrame, s2g_df: pd.DataFrame, *, latent_col: str, gene_col_out: str, bim_df: Optional[pd.DataFrame] = None, require_bim_if_needed: bool = False, ) -> pd.DataFrame:
-"""
-Map SHAP SNP_ID to genes using: 1) direct merge SNP_ID == s2g.SNP (works if SNP_ID already rsID) 2) fallback: SNP_ID -> (CHR,BP) -> rsID using BIM -> merge to s2g Returns columns: [latent_col, gene_col_out, (optional passthrough cols if present)]
-"""
-if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns: raise ValueError(f"SHAP DF must contain columns: [{latent_col}, SNP_ID]") s2g = s2g_df.copy() snp_col = _detect_s2g_snp_col(s2g) gcol = _detect_gene_col(s2g) shap = shap_df.copy() shap["SNP_ID"] = shap["SNP_ID"].astype(str).str.strip() s2g[snp_col] = s2g[snp_col].astype(str).str.strip() s2g[gcol] = s2g[gcol].astype(str).str.strip()
-# 1) direct merge tmp = shap.merge(s2g[[snp_col, gcol]], left_on="SNP_ID", right_on=snp_col, how="left") unmapped_rate = float(tmp[gcol].isna().mean()) if len(tmp) else 1.0 # 2) fallback via BIM if mostly unmapped if unmapped_rate > 0.95: if bim_df is None: if require_bim_if_needed: raise RuntimeError( "SHAP SNP_ID looks like chr_pos format (e.g., chr1_..._b38) but cS2G uses rsIDs.\n" "Provide --bim_file (e.g., /work/long_lab/for_Ariel/pruned/PRC.bim)." )
-else: chrom_bp = shap["SNP_ID"].apply(_parse_shap_chr_bp) shap["_CHR"] = [x[0] for x in chrom_bp] shap["_BP"] = [x[1] for x in chrom_bp] shap["_BP"] = pd.to_numeric(shap["_BP"], errors="coerce").astype("Int64") shap["_CHR"] = shap["_CHR"].astype(str).str.replace("chr", "", regex=False) shap2rs = shap.merge( bim_df, left_on=["_CHR", "_BP"], right_on=["CHR", "BP"], how="left", ) tmp = shap2rs.merge( s2g[[snp_col, gcol]], left_on="RSID", right_on=snp_col, how="left", ) out = tmp.dropna(subset=[gcol]).copy() out = out.rename(columns={gcol: gene_col_out})
-# normalize gene field then explode multi-gene entries out[gene_col_out] = ( out[gene_col_out].astype(str) .str.replace(r"\s+", "", regex=True) .str.replace("|", ";", regex=False) ) out = out.assign(**{gene_col_out: out[gene_col_out].str.split(r"[;,]")}).explode(gene_col_out) out = out.dropna(subset=[gene_col_out]) keep_cols = [c for c in [latent_col, gene_col_out, "Sample", "SNP_ID"] if c in out.columns] return out[keep_cols]
-# ============================================================================= # ✅ LV ordering helpers
+    """
+    BIM: CHR SNP CM BP A1 A2
+    Returns CHR,BP,RSID unique.
+    """
+    if not bim_file or not os.path.exists(bim_file):
+        raise FileNotFoundError(f"--bim_file not found: {bim_file}")
+
+    bim = pd.read_csv(
+        bim_file,
+        sep=r"\s+",
+        header=None,
+        names=["CHR", "RSID", "CM", "BP", "A1", "A2"],
+        dtype={"CHR": str, "RSID": str},
+    )
+    bim["CHR"] = bim["CHR"].astype(str).str.replace("chr", "", regex=False)
+    bim["BP"] = pd.to_numeric(bim["BP"], errors="coerce").astype("Int64")
+    bim = bim.dropna(subset=["BP", "RSID"])
+    return bim[["CHR", "BP", "RSID"]].drop_duplicates()
+
+
+def _detect_s2g_snp_col(s2g_df: pd.DataFrame) -> str:
+    for c in s2g_df.columns:
+        if c.lower() in {"snp", "rsid", "snp_id"}:
+            return c
+    raise ValueError(f"Could not detect SNP column in s2g file. Columns: {list(s2g_df.columns)[:30]}")
+
+
+def _map_shap_to_genes(
+    shap_df: pd.DataFrame,
+    s2g_df: pd.DataFrame,
+    *,
+    latent_col: str,
+    gene_col_out: str,
+    bim_df: Optional[pd.DataFrame] = None,
+    require_bim_if_needed: bool = False,
+) -> pd.DataFrame:
+    """
+    Map SHAP SNP_ID to genes using:
+      1) direct merge SNP_ID == s2g.SNP (works if SNP_ID already rsID)
+      2) fallback: SNP_ID -> (CHR,BP) -> rsID using BIM -> merge to s2g
+
+    Returns columns: [latent_col, gene_col_out, (optional passthrough cols if present)]
+    """
+    if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns:
+        raise ValueError(f"SHAP DF must contain columns: [{latent_col}, SNP_ID]")
+
+    s2g = s2g_df.copy()
+    snp_col = _detect_s2g_snp_col(s2g)
+    gcol = _detect_gene_col(s2g)
+
+    shap = shap_df.copy()
+    shap["SNP_ID"] = shap["SNP_ID"].astype(str).str.strip()
+    s2g[snp_col] = s2g[snp_col].astype(str).str.strip()
+    s2g[gcol] = s2g[gcol].astype(str).str.strip()
+
+    # 1) direct merge
+    tmp = shap.merge(s2g[[snp_col, gcol]], left_on="SNP_ID", right_on=snp_col, how="left")
+    unmapped_rate = float(tmp[gcol].isna().mean()) if len(tmp) else 1.0
+
+    # 2) fallback via BIM if mostly unmapped
+    if unmapped_rate > 0.95:
+        if bim_df is None:
+            if require_bim_if_needed:
+                raise RuntimeError(
+                    "SHAP SNP_ID looks like chr_pos format (e.g., chr1_..._b38) but cS2G uses rsIDs.\n"
+                    "Provide --bim_file (e.g., /work/long_lab/for_Ariel/pruned/PRC.bim)."
+                )
+        else:
+            chrom_bp = shap["SNP_ID"].apply(_parse_shap_chr_bp)
+            shap["_CHR"] = [x[0] for x in chrom_bp]
+            shap["_BP"] = [x[1] for x in chrom_bp]
+            shap["_BP"] = pd.to_numeric(shap["_BP"], errors="coerce").astype("Int64")
+            shap["_CHR"] = shap["_CHR"].astype(str).str.replace("chr", "", regex=False)
+
+            shap2rs = shap.merge(
+                bim_df,
+                left_on=["_CHR", "_BP"],
+                right_on=["CHR", "BP"],
+                how="left",
+            )
+            tmp = shap2rs.merge(
+                s2g[[snp_col, gcol]],
+                left_on="RSID",
+                right_on=snp_col,
+                how="left",
+            )
+
+    out = tmp.dropna(subset=[gcol]).copy()
+    out = out.rename(columns={gcol: gene_col_out})
+
+    # normalize gene field then explode multi-gene entries
+    out[gene_col_out] = (
+        out[gene_col_out].astype(str)
+        .str.replace(r"\s+", "", regex=True)
+        .str.replace("|", ";", regex=False)
+    )
+    out = out.assign(**{gene_col_out: out[gene_col_out].str.split(r"[;,]")}).explode(gene_col_out)
+    out = out.dropna(subset=[gene_col_out])
+
+    keep_cols = [c for c in [latent_col, gene_col_out, "Sample", "SNP_ID"] if c in out.columns]
+    return out[keep_cols]
+
+
 # =============================================================================
-def _lv_order_columns( mat: pd.DataFrame, lv_order: str, overlay_sig_thresh: float, ) -> List[str]:
-"""
-Decide LV column ordering for heatmaps. lv_order: - numeric: LV_1, LV_2, ... - sig_count: #rows significant per LV (>= overlay_sig_thresh), tie-break sum - sum: sum of matrix values per LV - max: max value per LV - cluster: dendrogram leaf order (Spearman corr distance)
-"""
-if mat is None or mat.empty: return list(mat.columns) cols = list(mat.columns) if lv_order == "numeric": return sorted(cols, key=_num_key_from_group) if lv_order == "sig_count": score = (mat >= overlay_sig_thresh).sum(axis=0) tie = mat.sum(axis=0) return ( pd.DataFrame({"score": score, "tie": tie}) .sort_values(["score", "tie"], ascending=[False, False]) .index.tolist() ) if lv_order == "sum": return mat.sum(axis=0).sort_values(ascending=False).index.tolist() if lv_order == "max": return mat.max(axis=0).sort_values(ascending=False).index.tolist() if lv_order == "cluster": if not SCIPY_OK or mat.shape[1] < 2: return cols corr = mat.corr(method="spearman").fillna(0.0) dist = 1.0 - corr np.fill_diagonal(dist.values, 0.0) condensed = squareform(dist.values, checks=False) Z = sch.linkage(condensed, method="average") leaf = sch.dendrogram(Z, no_plot=True)["ivl"] return leaf raise ValueError(f"Unknown lv_order={lv_order}. Choose from: numeric|sig_count|sum|max|cluster")
-def select_top_pathways_for_plot( heat_df: pd.DataFrame, top_n: int = 10, method: str = "sig_count", # "sig_count" | "max" | "mean_topk" sig_thresh: float = 1.30103, # -log10(0.05) topk: int = 3, ) -> pd.DataFrame:
-"""Select top pathways (rows) for readability."""
-if heat_df is None or heat_df.empty: return heat_df X = heat_df.copy() if method == "max": score = X.max(axis=1)
-elif method == "sig_count": score = (X >= sig_thresh).sum(axis=1)
-elif method == "mean_topk": score = X.apply(lambda r: float(np.mean(np.sort(r.values)[-topk:])), axis=1)
-else: raise ValueError(f"Unknown method={method}. Choose from: sig_count|max|mean_topk") keep = score.sort_values(ascending=False).head(int(top_n)).index return X.loc[keep]
-def _plot_matrix( mat: pd.DataFrame, title: str, out_png: str, dpi: int = 300, vmin: float | None = 0.0, vmax: float | None = None, overlay_sig_thresh: float | None = 1.30103, truncate_y_at: int = 0, cbar_label: str = "-log10(FDR)", ):
-"""Heatmap for matrices; optional overlay circles where value>=threshold."""
-if mat is None or mat.empty: print(f"[WARN] Empty matrix for heatmap: {title}") return w = max(8, 0.35 * mat.shape[1] + 4) h = max(6, 0.28 * mat.shape[0] + 3) fig = plt.figure(figsize=(w, h), constrained_layout=True) ax = fig.add_subplot(111) im = ax.imshow(mat.values, aspect="auto", interpolation="nearest", vmin=vmin, vmax=vmax) cbar = fig.colorbar(im, ax=ax, pad=0.02, shrink=0.95) cbar.set_label(cbar_label, rotation=90, va="center") ax.set_yticks(range(len(mat.index))) if truncate_y_at and truncate_y_at > 0: yt = [ (str(s) if len(str(s)) <= truncate_y_at else str(s)[:truncate_y_at - 1] + "…") for s in mat.index ] ax.set_yticklabels(yt, fontsize=7)
-else: ax.set_yticklabels(mat.index, fontsize=7) ax.set_xticks(range(len(mat.columns))) ax.set_xticklabels(mat.columns, rotation=45, ha="right") ax.set_title(title) if overlay_sig_thresh is not None: vals = mat.values rr, cc = np.where(vals >= overlay_sig_thresh) ax.scatter(cc, rr, s=8, facecolors="none", edgecolors="k", linewidths=0.4) fig.savefig(out_png, dpi=dpi, bbox_inches="tight", pad_inches=0.02) plt.close(fig)
-def _plot_sig_count_bar(sig_counts: pd.Series, out_png: str, title: str, dpi: int = 300, ylabel: str = "# significant"): x = np.arange(len(sig_counts)) plt.figure(figsize=(max(8, 0.25 * len(sig_counts) + 4), 4.0)) plt.bar(x, sig_counts.values) plt.xticks(x, sig_counts.index, rotation=45, ha="right") plt.ylabel(ylabel) plt.title(title) plt.tight_layout() plt.savefig(out_png, dpi=dpi) plt.close()
+# ✅ LV ordering helpers
+# =============================================================================
+
+def _lv_order_columns(
+    mat: pd.DataFrame,
+    lv_order: str,
+    overlay_sig_thresh: float,
+) -> List[str]:
+    """
+    Decide LV column ordering for heatmaps.
+
+    lv_order:
+      - numeric: LV_1, LV_2, ...
+      - sig_count: #rows significant per LV (>= overlay_sig_thresh), tie-break sum
+      - sum: sum of matrix values per LV
+      - max: max value per LV
+      - cluster: dendrogram leaf order (Spearman corr distance)
+    """
+    if mat is None or mat.empty:
+        return list(mat.columns)
+
+    cols = list(mat.columns)
+
+    if lv_order == "numeric":
+        return sorted(cols, key=_num_key_from_group)
+
+    if lv_order == "sig_count":
+        score = (mat >= overlay_sig_thresh).sum(axis=0)
+        tie = mat.sum(axis=0)
+        return (
+            pd.DataFrame({"score": score, "tie": tie})
+            .sort_values(["score", "tie"], ascending=[False, False])
+            .index.tolist()
+        )
+
+    if lv_order == "sum":
+        return mat.sum(axis=0).sort_values(ascending=False).index.tolist()
+
+    if lv_order == "max":
+        return mat.max(axis=0).sort_values(ascending=False).index.tolist()
+
+    if lv_order == "cluster":
+        if not SCIPY_OK or mat.shape[1] < 2:
+            return cols
+        corr = mat.corr(method="spearman").fillna(0.0)
+        dist = 1.0 - corr
+        np.fill_diagonal(dist.values, 0.0)
+        condensed = squareform(dist.values, checks=False)
+        Z = sch.linkage(condensed, method="average")
+        leaf = sch.dendrogram(Z, no_plot=True)["ivl"]
+        return leaf
+
+    raise ValueError(f"Unknown lv_order={lv_order}. Choose from: numeric|sig_count|sum|max|cluster")
+
+
+def select_top_pathways_for_plot(
+    heat_df: pd.DataFrame,
+    top_n: int = 10,
+    method: str = "sig_count",   # "sig_count" | "max" | "mean_topk"
+    sig_thresh: float = 1.30103, # -log10(0.05)
+    topk: int = 3,
+) -> pd.DataFrame:
+    """Select top pathways (rows) for readability."""
+    if heat_df is None or heat_df.empty:
+        return heat_df
+
+    X = heat_df.copy()
+
+    if method == "max":
+        score = X.max(axis=1)
+    elif method == "sig_count":
+        score = (X >= sig_thresh).sum(axis=1)
+    elif method == "mean_topk":
+        score = X.apply(lambda r: float(np.mean(np.sort(r.values)[-topk:])), axis=1)
+    else:
+        raise ValueError(f"Unknown method={method}. Choose from: sig_count|max|mean_topk")
+
+    keep = score.sort_values(ascending=False).head(int(top_n)).index
+    return X.loc[keep]
+
+
+def _plot_matrix(
+    mat: pd.DataFrame,
+    title: str,
+    out_png: str,
+    dpi: int = 300,
+    vmin: float | None = 0.0,
+    vmax: float | None = None,
+    overlay_sig_thresh: float | None = 1.30103,
+    truncate_y_at: int = 0,
+    cbar_label: str = "-log10(FDR)",
+):
+    """Heatmap for matrices; optional overlay circles where value>=threshold."""
+    if mat is None or mat.empty:
+        print(f"[WARN] Empty matrix for heatmap: {title}")
+        return
+
+    w = max(8, 0.35 * mat.shape[1] + 4)
+    h = max(6, 0.28 * mat.shape[0] + 3)
+    fig = plt.figure(figsize=(w, h), constrained_layout=True)
+    ax = fig.add_subplot(111)
+    im = ax.imshow(mat.values, aspect="auto", interpolation="nearest", vmin=vmin, vmax=vmax)
+    cbar = fig.colorbar(im, ax=ax, pad=0.02, shrink=0.95)
+    cbar.set_label(cbar_label, rotation=90, va="center")
+
+    ax.set_yticks(range(len(mat.index)))
+    if truncate_y_at and truncate_y_at > 0:
+        yt = [
+            (str(s) if len(str(s)) <= truncate_y_at else str(s)[:truncate_y_at - 1] + "…")
+            for s in mat.index
+        ]
+        ax.set_yticklabels(yt, fontsize=7)
+    else:
+        ax.set_yticklabels(mat.index, fontsize=7)
+
+    ax.set_xticks(range(len(mat.columns)))
+    ax.set_xticklabels(mat.columns, rotation=45, ha="right")
+    ax.set_title(title)
+
+    if overlay_sig_thresh is not None:
+        vals = mat.values
+        rr, cc = np.where(vals >= overlay_sig_thresh)
+        ax.scatter(cc, rr, s=8, facecolors="none", edgecolors="k", linewidths=0.4)
+
+    fig.savefig(out_png, dpi=dpi, bbox_inches="tight", pad_inches=0.02)
+    plt.close(fig)
+
+
+def _plot_sig_count_bar(sig_counts: pd.Series, out_png: str, title: str, dpi: int = 300, ylabel: str = "# significant"):
+    x = np.arange(len(sig_counts))
+    plt.figure(figsize=(max(8, 0.25 * len(sig_counts) + 4), 4.0))
+    plt.bar(x, sig_counts.values)
+    plt.xticks(x, sig_counts.index, rotation=45, ha="right")
+    plt.ylabel(ylabel)
+    plt.title(title)
+    plt.tight_layout()
+    plt.savefig(out_png, dpi=dpi)
+    plt.close()
+
+
 def _plot_lv_dendrogram(heat_df: pd.DataFrame, out_png: str, dpi: int = 300) -> pd.DataFrame:
-"""Dendrogram of LVs using Spearman correlation distance. Falls back to corr heatmap if SciPy missing."""
-corr = heat_df.corr(method="spearman").fillna(0.0) if SCIPY_OK and corr.shape[1] >= 2: dist = 1.0 - corr np.fill_diagonal(dist.values, 0.0) condensed = squareform(dist.values, checks=False) Z = sch.linkage(condensed, method="average") plt.figure(figsize=(max(8, 0.25 * heat_df.shape[1] + 4), 4)) sch.dendrogram(Z, labels=list(corr.columns), leaf_rotation=45) plt.title("LV dendrogram (Spearman distance)") plt.tight_layout() plt.savefig(out_png, dpi=dpi) plt.close()
-else: w = max(6, 0.3 * corr.shape[1] + 3) plt.figure(figsize=(w, w)) im = plt.imshow(corr.values, aspect="equal", interpolation="nearest", vmin=-1, vmax=1) plt.colorbar(im, label="Spearman r") plt.xticks(range(len(corr.columns)), corr.columns, rotation=45, ha="right", fontsize=7) plt.yticks(range(len(corr.index)), corr.index, fontsize=7) plt.title("LV correlation (Spearman) — SciPy not available") plt.tight_layout() plt.savefig(out_png.replace(".png", "_corr.png"), dpi=dpi) plt.close() return corr
-# ============================================================================= # Protocol figure (optional)
+    """Dendrogram of LVs using Spearman correlation distance. Falls back to corr heatmap if SciPy missing."""
+    corr = heat_df.corr(method="spearman").fillna(0.0)
+    if SCIPY_OK and corr.shape[1] >= 2:
+        dist = 1.0 - corr
+        np.fill_diagonal(dist.values, 0.0)
+        condensed = squareform(dist.values, checks=False)
+        Z = sch.linkage(condensed, method="average")
+        plt.figure(figsize=(max(8, 0.25 * heat_df.shape[1] + 4), 4))
+        sch.dendrogram(Z, labels=list(corr.columns), leaf_rotation=45)
+        plt.title("LV dendrogram (Spearman distance)")
+        plt.tight_layout()
+        plt.savefig(out_png, dpi=dpi)
+        plt.close()
+    else:
+        w = max(6, 0.3 * corr.shape[1] + 3)
+        plt.figure(figsize=(w, w))
+        im = plt.imshow(corr.values, aspect="equal", interpolation="nearest", vmin=-1, vmax=1)
+        plt.colorbar(im, label="Spearman r")
+        plt.xticks(range(len(corr.columns)), corr.columns, rotation=45, ha="right", fontsize=7)
+        plt.yticks(range(len(corr.index)), corr.index, fontsize=7)
+        plt.title("LV correlation (Spearman) — SciPy not available")
+        plt.tight_layout()
+        plt.savefig(out_png.replace(".png", "_corr.png"), dpi=dpi)
+        plt.close()
+    return corr
+
+
 # =============================================================================
-def make_xai_protocol_figure(output_path: str): plt.figure(figsize=(10, 5)) ax = plt.gca() ax.axis("off")
-def box(xy, text): x, y = xy w, h = 1.9, 0.9 rect = FancyBboxPatch( (x, y), w, h, boxstyle="round,pad=0.02,rounding_size=0.05", linewidth=1.2, fill=False ) ax.add_patch(rect) ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=10) return (x, y, w, h)
-def arrow(b1, b2): x1, y1, w1, h1 = b1 x2, y2, w2, h2 = b2 p1 = (x1 + w1, y1 + h1 / 2) p2 = (x2, y2 + h2 / 2) ax.add_patch(ConnectionPatch(p1, p2, "data", "data", arrowstyle="->", lw=1.2)) A = box((0.3, 0.55), "SHAP-ranked SNPs\n(per LV, per sample)") B = box((2.5, 0.55), "GWAS overlap\n(P, effect size)") C = box((4.7, 0.55), "SNP→Gene mapping\n(cS2G / S2G)") D = box((6.9, 0.80), "Gene relevance:\nDisGeNET (diseases)") E = box((6.9, 0.30), "Pathways:\nKEGG/Reactome/GO") F = box((8.9, 0.55), "Interpretation:\nper-LV & per-sample") arrow(A, B); arrow(B, C); arrow(C, D); arrow(C, E); arrow(D, F); arrow(E, F) ax.text(0.3, 0.1, "Fig. 3A – Protocol of XAI", fontsize=12) plt.tight_layout() plt.savefig(output_path, dpi=300) plt.close()
-# ============================================================================= # SHAP → Gene table builders (UPDATED with BIM support)
+# Protocol figure (optional)
 # =============================================================================
-def build_latent_gene_table_from_shap( base_dir: str, disease: str, LD: int, NS: int, L: int, K: int, s2g_path: str, bim_file: Optional[str] = None, latent_col: str = "Latent_Dim", gene_col_out: str = "GENE", ) -> pd.DataFrame:
-"""
-Reads: outputs/{disease}_LD{LD}_NS{NS}_L{L}_K{K}_top_snps_per_latent.csv Maps SNP_ID -> GENE using s2g_path (TSV) with optional chr_pos->rsID via BIM. Returns columns: [latent_col, gene_col_out]
-"""
-shap_file = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_top_snps_per_latent.csv") if not os.path.exists(shap_file): raise FileNotFoundError(f"Missing SHAP file: {shap_file}") shap_df = pd.read_csv(shap_file) if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns: raise ValueError(f"SHAP file missing required columns. Needs [{latent_col}, SNP_ID]. Got: {list(shap_df.columns)}") s2g_df = _safe_read_table(s2g_path, sep="\t") bim_df = _load_bim_map(bim_file) if bim_file else None out = _map_shap_to_genes( shap_df=shap_df, s2g_df=s2g_df, latent_col=latent_col, gene_col_out=gene_col_out, bim_df=bim_df, require_bim_if_needed=(bim_file is None), ) return out[[latent_col, gene_col_out]]
-def build_latent_gene_table_from_shap_sample( base_dir: str, disease: str, LD: int, NS: int, L: int, K: int, sample_id: str, s2g_path: str, bim_file: Optional[str] = None, latent_col: str = "Latent_Dim", gene_col_out: str = "GENE", ) -> pd.DataFrame:
-"""
-Reads per-sample: outputs/{disease}_LD{LD}_NS{NS}_L{L}_K{K}_{sample_id}_top_snps_per_latent.csv
-"""
-sid = sample_id if not sid.startswith("S"): sid = f"S{sid}" shap_file = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_{sid}_top_snps_per_latent.csv") if not os.path.exists(shap_file): alt = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_S{sid.lstrip('S')}_top_snps_per_latent.csv") if os.path.exists(alt): shap_file = alt
-else: raise FileNotFoundError(f"Missing per-sample SHAP file: {shap_file}") shap_df = pd.read_csv(shap_file) if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns: raise ValueError(f"Per-sample SHAP file missing required columns. Needs [{latent_col}, SNP_ID].") s2g_df = _safe_read_table(s2g_path, sep="\t") bim_df = _load_bim_map(bim_file) if bim_file else None out = _map_shap_to_genes( shap_df=shap_df, s2g_df=s2g_df, latent_col=latent_col, gene_col_out=gene_col_out, bim_df=bim_df, require_bim_if_needed=(bim_file is None), ) return out[[latent_col, gene_col_out]]
-def build_latent_gene_table_from_shap_all_samples( base_dir: str, disease: str, LD: int, NS: int, L: int, K: int, s2g_path: str, bim_file: Optional[str] = None, latent_col: str = "Latent_Dim", gene_col_out: str = "GENE", ) -> pd.DataFrame:
-"""
-Reads all per-sample SHAP files for this config and concatenates them. Returns long table with columns: [latent_col, gene_col_out, Sample, SNP_ID]
-"""
-outputs_dir = os.path.join(base_dir, "outputs") pat = os.path.join(outputs_dir, f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_S*_top_snps_per_latent.csv") files = sorted(glob.glob(pat)) if not files: raise FileNotFoundError(f"No per-sample SHAP files found with pattern:\n{pat}") s2g_df = _safe_read_table(s2g_path, sep="\t") bim_df = _load_bim_map(bim_file) if bim_file else None all_rows = [] for fp in files: m = re.search(r"_S(\d+)_top_snps_per_latent\.csv$", fp) sample = f"S{m.group(1)}" if m else "S?" df = pd.read_csv(fp) if df is None or df.empty: continue if "SNP_ID" not in df.columns or latent_col not in df.columns: raise ValueError(f"{os.path.basename(fp)} missing required columns: [{latent_col}, SNP_ID]") df["Sample"] = sample mapped = _map_shap_to_genes( shap_df=df, s2g_df=s2g_df, latent_col=latent_col, gene_col_out=gene_col_out, bim_df=bim_df, require_bim_if_needed=(bim_file is None), ) if "Sample" not in mapped.columns: mapped["Sample"] = sample if "SNP_ID" not in mapped.columns and "SNP_ID" in df.columns: mapped["SNP_ID"] = df["SNP_ID"].astype(str).str.strip().values[:len(mapped)] mapped = mapped[[latent_col, gene_col_out, "Sample", "SNP_ID"]].dropna() all_rows.append(mapped) if not all_rows: raise RuntimeError("All per-sample SHAP files were empty or unmappable to genes.") out = pd.concat(all_rows, ignore_index=True) return out
-def write_gene_wide_matrix( df_long: pd.DataFrame, out_csv: str, latent_col: str = "Latent_Dim", gene_col: str = "GENE", ):
-"""
-Wide matrix: rows=GENE, cols = Sample__LV (e.g., S1__LV_0, S2__LV_0, ...) Values = counts.
-"""
-x = df_long.copy() x["Col"] = x["Sample"].astype(str) + "__" + x[latent_col].astype(str) mat = ( x.groupby([gene_col, "Col"], sort=False) .size() .unstack("Col", fill_value=0) .sort_index(axis=1) ) mat.to_csv(out_csv) return out_csv
-# ============================================================================= # Enrichment engines (UNCHANGED)
-# ============================================================================= # (Your enrich_by_latent_enrichr, enrich_by_latent_gmt, LV bubble plots, # aggregate_enrichr_within_sample remain the same as your provided version.)
-# To keep this answer readable, they are included exactly as-is below. # -------------------------- START: ENRICHMENT BLOCK ------------------------- # (PASTE: your enrich_by_latent_enrichr, enrich_by_latent_gmt, # plot_single_lv_bubble_from_enrichr, plot_all_lvs_bubble_grid_from_enrichr, # aggregate_enrichr_within_sample here)
-# # IMPORTANT: I am keeping your code unchanged. For brevity in this message, # I will re-insert the functions by referencing that they are the same as in # your last version, but in your actual file you MUST keep them. # # ✅ In this response, I will include them fully so the file is truly complete. # --------------------------- BEGIN FULL ENRICHMENT --------------------------
-def enrich_by_latent_enrichr( merged_df: pd.DataFrame, gene_sets: List[str], output_dir: str, gene_col: Optional[str] = None, latent_col: str = "Latent_Dim", sample_col: Optional[str] = None, score_col: Optional[str] = None, genes_per_lv: int = 200, top_per_library: int = 10, order_lvs_numeric: bool = True, figure_dpi: int = 300, overlay_sig_thresh: float = 1.30103, vmax_raw: Optional[float] = 6.0, enrichr_retries: int = 3, enrichr_sleep_sec: float = 1.0, heatmap_top_n: int = 10, heatmap_top_method: str = "sig_count", heatmap_topk_mean: int = 3, heatmap_truncate_y: int = 90, lv_order: str = "sig_count", ) -> Dict[str, str]:
-"""
-Enrichr per LV, writing BOTH: - enrichr_all_{GROUP}.csv : all pathways returned by Enrichr (no truncation) - enrichr_top_{GROUP}.csv : subset used for heatmap (Top-N per library)
-"""
-if not GSEAPY_AVAILABLE: raise ImportError("gseapy is not installed. Install with: pip install gseapy") os.makedirs(output_dir, exist_ok=True) if gene_col is None: gene_col = _detect_gene_col(merged_df) for c in [latent_col, gene_col]: if c not in merged_df.columns: raise ValueError(f"Required column '{c}' missing. Columns: {list(merged_df.columns)[:30]}") df = merged_df.copy() use_sample_in_group = False if sample_col and sample_col in df.columns: n_samp = df[sample_col].astype(str).nunique(dropna=True) use_sample_in_group = (n_samp > 1) if use_sample_in_group: df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
-else: df["_group"] = df[latent_col].astype(str) groups = sorted(df["_group"].unique()) if not groups: _write_empty_log(output_dir, ["No groups found for Enrichr enrichment."]) return {} if order_lvs_numeric: groups = sorted(groups, key=_num_key_from_group)
-def _top_k_genes(sub_df: pd.DataFrame, k: int) -> List[str]: if score_col and score_col in sub_df.columns: take = ( sub_df[[gene_col, score_col]] .dropna(subset=[gene_col]) .astype({gene_col: str}) .sort_values(score_col, ascending=False) .drop_duplicates(subset=[gene_col]) ) return list(take[gene_col].head(k)) s = sub_df[gene_col].astype(str).dropna() return list(pd.unique(s))[:k] heat_data: Dict[str, Dict[str, float]] = {} gene_fingerprints = {} for grp in groups: sub = df.loc[df["_group"] == grp] genes = _top_k_genes(sub, genes_per_lv) gene_fingerprints[grp] = (len(genes), _hash_list(genes[:50])) if len(genes) < 3: pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_all_{grp}.csv"), index=False) pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False) continue all_results = [] for lib in gene_sets: last_err = None enr_res = None for _try in range(max(1, int(enrichr_retries))):
-try: enr = _enrichr(gene_list=genes, gene_sets=lib, organism="Human", outdir=None, cutoff=1.0) enr_res = enr.results break
-except Exception as e: last_err = e time.sleep(float(enrichr_sleep_sec)) if enr_res is None or (hasattr(enr_res, "empty") and enr_res.empty): if last_err: print(f"[WARN] Enrichr failed for {lib} / {grp}: {last_err}") continue r = enr_res.copy() for col in ["Adjusted P-value", "P-value", "Combined Score", "Odds Ratio"]: if col in r.columns: r[col] = pd.to_numeric(r[col], errors="coerce") adj_col = _pick_adj_p_column(r) raw_col = _pick_raw_p_column(r) if adj_col is not None: r["_FDR_used"] = pd.to_numeric(r[adj_col], errors="coerce")
-elif raw_col is not None: pv = pd.to_numeric(r[raw_col], errors="coerce") fdr = np.full(len(pv), np.nan, dtype=float) mask = pv.notna() if mask.sum() > 0: fdr[mask.values] = _bh_fdr(pv[mask].values) r["_FDR_used"] = fdr print(f"[WARN] {grp}/{lib}: no adjusted-p column; computed BH-FDR from raw p.")
-else: continue if "Overlap" in r.columns: r["k"] = _parse_overlap_k(r["Overlap"])
-elif "k" not in r.columns: r["k"] = np.nan r["Library"] = lib r["Group"] = grp if sample_col and sample_col in sub.columns: r["Sample"] = str(sub[sample_col].iloc[0]) if sub[sample_col].notna().any() else "" all_results.append(r) if all_results: df_all = pd.concat(all_results, ignore_index=True) all_csv = os.path.join(output_dir, f"enrichr_all_{grp}.csv") df_all.to_csv(all_csv, index=False) df_all2 = df_all.dropna(subset=["_FDR_used"]).copy() if not df_all2.empty: with warnings.catch_warnings(): warnings.simplefilter("ignore", FutureWarning) top_hits = ( df_all2.groupby("Library", group_keys=False) .apply(lambda x: x.nsmallest(top_per_library, "_FDR_used")) ) top_csv = os.path.join(output_dir, f"enrichr_top_{grp}.csv") top_hits.to_csv(top_csv, index=False) for _, row in top_hits.iterrows(): term = f"{row.get('Term', 'NA')} ({row.get('Library', 'NA')})" q = row["_FDR_used"] if pd.isna(q) or q <= 0: q = np.nextafter(0, 1) heat_data.setdefault(term, {})[grp] = -np.log10(q)
-else: pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False)
-else: pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_all_{grp}.csv"), index=False) pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False) fp = pd.DataFrame( [(g, n, h) for g, (n, h) in gene_fingerprints.items()], columns=["Group", "NumGenesSent", "Top50Hash"] ).set_index("Group") fp = fp.reindex(groups) fp.to_csv(os.path.join(output_dir, "debug_gene_list_fingerprints.csv")) if not heat_data: _write_empty_log(output_dir, ["Enrichr returned no usable results for any group."]) return {} heat_df = pd.DataFrame(heat_data).T.reindex(columns=groups).fillna(0.0) heat_raw_csv = os.path.join(output_dir, "enrichr_pathway_heatmap_matrix.raw.csv") heat_df.to_csv(heat_raw_csv) heat_df_disp = heat_df.copy() heat_df_disp.columns = [_display_as_lv(c) for c in heat_df_disp.columns] lv_cols_sorted = _lv_order_columns(heat_df_disp, lv_order=lv_order, overlay_sig_thresh=overlay_sig_thresh) heat_df_disp = heat_df_disp.loc[:, lv_cols_sorted] lv_sig_counts = (heat_df_disp >= overlay_sig_thresh).sum(axis=0) lv_sig_counts.to_csv(os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.in_heatmap_order.csv")) lv_sig_counts.sort_values(ascending=False).to_csv(os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.sorted.csv")) _plot_sig_count_bar( lv_sig_counts, out_png=os.path.join(output_dir, "figS_sig_counts_per_LV.png"), title=f"Fig. S — Significant pathways per LV (q<0.05) — order={lv_order}", dpi=figure_dpi, ylabel="# pathways (q<0.05)", ) colcorr = _plot_lv_dendrogram( heat_df_disp, out_png=os.path.join(output_dir, "figS_lv_dendrogram.png"), dpi=figure_dpi ) colcorr.to_csv(os.path.join(output_dir, "enrichr_lv_spearman_corr.csv")) _plot_matrix( mat=heat_df_disp, title=f"LV×Pathway enrichment (Enrichr) — raw -log10(FDR) (FULL) — order={lv_order}", out_png=os.path.join(output_dir, "fig_pathway_heatmap_raw.png"), dpi=figure_dpi, vmin=0.0, vmax=vmax_raw, overlay_sig_thresh=overlay_sig_thresh, truncate_y_at=heatmap_truncate_y, cbar_label="-log10(FDR)", ) z = (heat_df_disp.T - heat_df_disp.mean(axis=1)).T denom = heat_df_disp.std(axis=1).replace(0, 1.0) z = z.div(denom, axis=0) z.to_csv(os.path.join(output_dir, "enrichr_pathway_heatmap_matrix.rowz.csv")) _plot_matrix( mat=z, title=f"LV×Pathway enrichment (Enrichr) — row-z (FULL) — order={lv_order}", out_png=os.path.join(output_dir, "fig_pathway_heatmap_rowz.png"), dpi=figure_dpi, vmin=None, vmax=None, overlay_sig_thresh=None, truncate_y_at=heatmap_truncate_y, cbar_label="row-z", ) top_n = int(heatmap_top_n) if heatmap_top_n is not None else 0 if top_n > 0: heat_top = select_top_pathways_for_plot( heat_df_disp, top_n=top_n, method=str(heatmap_top_method), sig_thresh=overlay_sig_thresh, topk=int(heatmap_topk_mean), ) heat_top.to_csv(os.path.join(output_dir, f"enrichr_pathway_heatmap_matrix.raw_top{top_n}.csv")) _plot_matrix( mat=heat_top, title=f"LV×Pathway enrichment (Enrichr) — raw (Top {top_n}, {heatmap_top_method}) — order={lv_order}", out_png=os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png"), dpi=figure_dpi, vmin=0.0, vmax=vmax_raw, overlay_sig_thresh=overlay_sig_thresh, truncate_y_at=heatmap_truncate_y, cbar_label="-log10(FDR)", ) z_top = z.loc[heat_top.index] z_top.to_csv(os.path.join(output_dir, f"enrichr_pathway_heatmap_matrix.rowz_top{top_n}.csv")) _plot_matrix( mat=z_top, title=f"LV×Pathway enrichment (Enrichr) — row-z (Top {top_n}, {heatmap_top_method}) — order={lv_order}", out_png=os.path.join(output_dir, f"fig_pathway_heatmap_rowz_top{top_n}.png"), dpi=figure_dpi, vmin=None, vmax=None, overlay_sig_thresh=None, truncate_y_at=heatmap_truncate_y, cbar_label="row-z", ) return { "heat_raw_csv": heat_raw_csv, "heatmap_raw_png": os.path.join(output_dir, "fig_pathway_heatmap_raw.png"), "heatmap_rowz_png": os.path.join(output_dir, "fig_pathway_heatmap_rowz.png"), "lv_sig_counts_csv": os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.in_heatmap_order.csv"), "lv_dendrogram_png": os.path.join(output_dir, "figS_lv_dendrogram.png"), "heatmap_raw_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png") if top_n > 0 else ""), "heatmap_rowz_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_rowz_top{top_n}.png") if top_n > 0 else ""), }
-def enrich_by_latent_gmt( merged_df: pd.DataFrame, gmt_files: List[str], output_dir: str, gene_col: Optional[str] = None, latent_col: str = "Latent_Dim", sample_col: Optional[str] = None, top_per_latent: int = 15, order_lvs_numeric: bool = True, figure_dpi: int = 300, overlay_sig_thresh: float = 1.30103, vmax_raw: Optional[float] = 6.0, heatmap_top_n: int = 10, heatmap_top_method: str = "sig_count", heatmap_topk_mean: int = 3, heatmap_truncate_y: int = 90, lv_order: str = "sig_count", ) -> Dict[str, str]: os.makedirs(output_dir, exist_ok=True) if gene_col is None: gene_col = _detect_gene_col(merged_df) pathway_db: Dict[str, set] = {} for gmt in gmt_files: if not os.path.exists(gmt): print(f"[WARN] GMT not found: {gmt}") continue dbname = os.path.splitext(os.path.basename(gmt))[0] gsets = _read_gmt(gmt) for pname, genes in gsets.items(): pathway_db[f"{dbname}::{pname}"] = set(map(str, genes)) if not pathway_db: _write_empty_log(output_dir, ["No GMTs loaded or all empty."]) return {} universe = set().union(*pathway_db.values()) if len(universe) == 0: _write_empty_log(output_dir, ["Pathway universe empty (no genes across GMTs)."]) return {} df = merged_df.copy() df["_gene"] = df[gene_col].astype(str) df = df[df["_gene"].isin(universe)] if sample_col and sample_col in df.columns: df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
-else: df["_group"] = df[latent_col].astype(str) groups = sorted(df["_group"].unique()) if not groups: _write_empty_log(output_dir, ["No groups found for GMT enrichment."]) return {} if order_lvs_numeric: groups = sorted(groups, key=_num_key_from_group) pathways = list(pathway_db.keys()) N = len(universe) heat = pd.DataFrame(0.0, index=pathways, columns=groups) any_rows = False for grp in groups: gset_input = set(df.loc[df["_group"] == grp, "_gene"].unique()) n = len(gset_input) if n == 0: continue rows = [] for pw in pathways: pw_genes = pathway_db[pw] K = len(pw_genes) k = len(gset_input & pw_genes) if k == 0: continue p = _hypergeo_pval(k, K, n, N) rows.append((pw, k, K, n, N, p)) if not rows: continue any_rows = True dfp = pd.DataFrame(rows, columns=["Pathway", "k", "K", "n", "N", "pval"]).sort_values("pval") dfp["FDR"] = _bh_fdr(dfp["pval"].values) dfp["minus_log10_FDR"] = -np.log10(dfp["FDR"].replace(0, np.nextafter(0, 1))) dfp["Group"] = grp dfp.head(top_per_latent).to_csv(os.path.join(output_dir, f"pathways_top_{grp}.csv"), index=False) for _, r in dfp.iterrows(): heat.at[r["Pathway"], grp] = r["minus_log10_FDR"] if not any_rows: _write_empty_log(output_dir, ["No pathway overlaps found in GMT enrichment."]) return {} heat_csv = os.path.join(output_dir, "gmt_pathway_heatmap_matrix.csv") heat.to_csv(heat_csv) heat_disp = heat.copy() heat_disp.columns = [_display_as_lv(c) for c in heat_disp.columns] lv_cols_sorted = _lv_order_columns(heat_disp, lv_order=lv_order, overlay_sig_thresh=overlay_sig_thresh) heat_disp = heat_disp.loc[:, lv_cols_sorted] _plot_matrix( mat=heat_disp, title=f"LV×Pathway enrichment (GMT) — raw -log10(FDR) (FULL) — order={lv_order}", out_png=os.path.join(output_dir, "fig_pathway_heatmap_raw.png"), dpi=figure_dpi, vmin=0.0, vmax=vmax_raw, overlay_sig_thresh=overlay_sig_thresh, truncate_y_at=heatmap_truncate_y, cbar_label="-log10(FDR)", ) top_n = int(heatmap_top_n) if heatmap_top_n is not None else 0 if top_n > 0: heat_top = select_top_pathways_for_plot( heat_disp, top_n=top_n, method=str(heatmap_top_method), sig_thresh=overlay_sig_thresh, topk=int(heatmap_topk_mean), ) heat_top.to_csv(os.path.join(output_dir, f"gmt_pathway_heatmap_matrix.top{top_n}.csv")) _plot_matrix( mat=heat_top, title=f"LV×Pathway enrichment (GMT) — raw (Top {top_n}, {heatmap_top_method}) — order={lv_order}", out_png=os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png"), dpi=figure_dpi, vmin=0.0, vmax=vmax_raw, overlay_sig_thresh=overlay_sig_thresh, truncate_y_at=heatmap_truncate_y, cbar_label="-log10(FDR)", ) return { "heat_raw_csv": heat_csv, "heatmap_raw_png": os.path.join(output_dir, "fig_pathway_heatmap_raw.png"), "heatmap_raw_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png") if top_n > 0 else ""), }
-def plot_single_lv_bubble_from_enrichr( output_dir: str, group_name: str, csv_prefix: str = "enrichr_all_", max_terms: int = 20, min_k: int = 1, fname_prefix: str = "fig_LV_bubble_", fixed_k_legend: Tuple[int, ...] = (1, 2, 5, 10), pval_color_limits: Tuple[float, float] = (0.0, 20.0), display_name: Optional[str] = None, truncate_y_at: int = 85, dpi: int = 300, ) -> Optional[str]: fpath = os.path.join(output_dir, f"{csv_prefix}{group_name}.csv") if not os.path.exists(fpath): print(f"[WARN] Missing {fpath}; skip LV bubble for {group_name}") return None df = pd.read_csv(fpath) if df is None or df.empty: print(f"[INFO] Empty {fpath}; skip LV bubble for {group_name}") return None for col in ["Adjusted P-value", "P-value", "FDR", "q-value", "qvalue", "_FDR_used"]: if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce") p_col = _pick_raw_p_column(df) adj_col = _pick_adj_p_column(df) if p_col is not None: color_values = df[p_col].astype(float) color_label = "-log10(P-value)" vmin, vmax = pval_color_limits
-elif adj_col is not None: color_values = df[adj_col].astype(float) color_label = "-log10(FDR)" vmin, vmax = 0.0, 10.0
-else: print(f"[WARN] {group_name}: no usable P/FDR column; skip LV bubble.") return None if "Overlap" in df.columns: k_vals = [] size_vals = [] for s in df["Overlap"].astype(str).fillna(""):
-try: a, b = s.split("/") k_vals.append(float(a)) size_vals.append(float(b))
-except Exception: k_vals.append(np.nan) size_vals.append(np.nan) df["k"] = k = pd.Series(k_vals, index=df.index) term_size = pd.Series(size_vals, index=df.index) pct = 100.0 * (k / term_size)
-elif "k" in df.columns: k = pd.to_numeric(df["k"], errors="coerce") pct = k.copy()
-else: print(f"[WARN] {group_name}: neither Overlap nor k found; skip LV bubble.") return None keep = (k.fillna(0) >= float(min_k)) & color_values.notna() d = df.loc[keep].copy() if d.empty: print(f"[INFO] {group_name}: no rows passing k>={min_k}.") return None eps = np.nextafter(0, 1) d["_score"] = -np.log10(color_values.loc[d.index].clip(lower=eps)) d["_pct"] = pct.loc[d.index].astype(float) d = d.sort_values(["_score", "_pct"], ascending=[False, False]).head(max_terms) full_terms = d["Term"] if "Term" in d.columns else pd.Series([f"term_{i}" for i in range(len(d))], index=d.index) y_terms = full_terms.apply(lambda t: t if len(str(t)) <= truncate_y_at else str(t)[:truncate_y_at - 1] + "…") sizes_arr = pd.to_numeric(d["k"], errors="coerce").fillna(0).values max_k = float(np.nanmax(sizes_arr)) if np.nanmax(sizes_arr) > 0 else 1.0 base, scale = 40.0, 300.0 bubble_sizes = base + scale * (sizes_arr / max_k) if display_name is None: display_name = _display_as_lv(group_name) plt.figure(figsize=(8.6, max(5.2, 0.50 * len(d)))) ax = plt.gca() sc = ax.scatter( d["_pct"].values, y_terms, s=bubble_sizes, c=d["_score"].values, cmap="viridis", vmin=vmin, vmax=vmax, edgecolor="k", linewidth=0.4, alpha=0.95, zorder=2, ) for xv, yv, kval in zip(d["_pct"].values, y_terms, d["k"].values): if pd.notna(kval) and kval > 0: ax.text(xv, yv, f"{int(kval)}", ha="center", va="center", fontsize=7, color="white", zorder=3) cbar = plt.colorbar(sc, ax=ax, pad=0.01) cbar.set_label(color_label) legend_k = list(fixed_k_legend) legend_norm = max(max_k, max(legend_k)) legend_sizes = [base + scale * (k_ / legend_norm) for k_ in legend_k] handles = [ plt.Line2D([0], [0], marker="o", linestyle="", markersize=(s_ ** 0.5), markerfacecolor="none", markeredgecolor="k", label=f"{int(k_)}") for k_, s_ in zip(legend_k, legend_sizes) ] ax.legend(handles, [f"{int(k_)}" for k_ in legend_k], title="Gene overlap (k)", loc="upper right", bbox_to_anchor=(1.35, 1.0), frameon=False) ax.set_xlabel("% associated genes (k / term size × 100)") ax.set_ylabel("Pathway term") ax.set_title(f"{display_name} — top {len(d)} enriched terms") plt.subplots_adjust(right=0.82) plt.tight_layout() out_png = os.path.join(output_dir, f"{fname_prefix}{group_name}.png") plt.savefig(out_png, dpi=dpi) plt.close() print(f"[OK] LV bubble written: {out_png}") return out_png
-def plot_all_lvs_bubble_grid_from_enrichr( output_dir: str, csv_prefix: str = "enrichr_all_", groups: Optional[List[str]] = None, max_terms: int = 15, min_k: int = 1, ncols: int = 4, page_size: Tuple[float, float] = (11, 8.5), dpi: int = 300, fname_pdf: str = "fig_LV_bubble_grid.pdf", ) -> Optional[str]: paths = [] if groups is None: paths = sorted(glob.glob(os.path.join(output_dir, f"{csv_prefix}*.csv"))) groups = [re.sub(rf"^{csv_prefix}", "", os.path.basename(p)).replace(".csv", "") for p in paths]
-else: paths = [os.path.join(output_dir, f"{csv_prefix}{g}.csv") for g in groups] if not paths: print("[WARN] No per-LV enrichr CSVs found; skip LV grid.") return None per_group_tables = {} global_k_max = 0.0 global_score_max = 0.0
-def _bh(pvals): p = pd.Series(pvals, dtype=float) mask = p.notna() out = np.full(len(p), np.nan, float) if mask.sum() > 0: out[mask.values] = multipletests(p[mask].values, method="fdr_bh")[1] return out for grp, fpath in zip(groups, paths): if not os.path.exists(fpath): continue df = pd.read_csv(fpath) if df is None or df.empty: continue for col in ["Adjusted P-value", "P-value", "FDR", "q-value", "qvalue", "_FDR_used"]: if col in df.columns: df[col] = pd.to_numeric(df[col], errors="coerce") adj_col = _pick_adj_p_column(df) raw_col = _pick_raw_p_column(df) if adj_col is not None: df["_FDR"] = pd.to_numeric(df[adj_col], errors="coerce")
-elif raw_col is not None: df["_FDR"] = _bh(pd.to_numeric(df[raw_col], errors="coerce").values)
-else: continue if "Overlap" in df.columns: k_vals, size_vals = [], [] for s in df["Overlap"].astype(str).fillna(""):
-try: a, b = s.split("/") k_vals.append(float(a)); size_vals.append(float(b))
-except Exception: k_vals.append(np.nan); size_vals.append(np.nan) df["k"] = pd.Series(k_vals, index=df.index) df["_pct"] = 100.0 * (df["k"] / pd.Series(size_vals, index=df.index))
-elif "k" in df.columns: df["k"] = pd.to_numeric(df["k"], errors="coerce") df["_pct"] = df["k"].astype(float)
-else: continue keep = (df["k"].fillna(0) >= float(min_k)) & df["_FDR"].notna() d = df.loc[keep].copy() if d.empty: continue eps = np.nextafter(0, 1) d["_score"] = -np.log10(d["_FDR"].clip(lower=eps)) d = d.sort_values("_score", ascending=False).head(max_terms) global_k_max = max(global_k_max, float(d["k"].max(skipna=True))) global_score_max = max(global_score_max, float(d["_score"].max(skipna=True))) per_group_tables[grp] = d if not per_group_tables: print("[WARN] No usable LV tables for bubble grid.") return None valid_groups = sorted(per_group_tables.keys(), key=_num_key_from_group) n = len(valid_groups) ncols = max(1, int(ncols)) nrows = 2 if n <= 2 * ncols else 3 if n <= 3 * ncols else 4 per_page = nrows * ncols n_pages = math.ceil(n / per_page)
-def bubble_sizes_from_k(k_series): k_vals = k_series.fillna(0).values if global_k_max > 0: return 250 * (k_vals / global_k_max) + 30 return np.full_like(k_vals, 30, dtype=float) pdf_path = os.path.join(output_dir, fname_pdf) with PdfPages(pdf_path) as pdf: for page in range(n_pages): start = page * per_page end = min((page + 1) * per_page, n) page_groups = valid_groups[start:end] fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=page_size, squeeze=False) all_axes = axes.ravel() last_sc = None for ax, grp in zip(all_axes, page_groups): d = per_group_tables[grp] y_terms = d["Term"] if "Term" in d.columns else pd.Series([f"term_{i}" for i in range(len(d))], index=d.index) sizes = bubble_sizes_from_k(d["k"]) last_sc = ax.scatter( d["_pct"].values, y_terms, s=sizes, c=d["_score"].values, vmin=0, vmax=global_score_max if global_score_max > 0 else None, cmap="viridis", edgecolor="k", linewidth=0.3 ) for xv, yv, kval in zip(d["_pct"].values, y_terms, d["k"].values): if pd.notna(kval) and kval > 0: ax.text(xv, yv, f"{int(kval)}", ha="center", va="center", fontsize=6, color="white") ax.set_title(_display_as_lv(grp), fontsize=9, pad=2) ax.set_xlabel("% associated genes", fontsize=8) ax.set_ylabel("Pathway", fontsize=8) ax.tick_params(axis="both", labelsize=7) for ax in all_axes[len(page_groups):]: ax.axis("off") if last_sc is not None: cbar = fig.colorbar(last_sc, ax=all_axes.tolist(), pad=0.01, fraction=0.02) cbar.set_label("-log10(FDR)", fontsize=8) cbar.ax.tick_params(labelsize=7) fig.tight_layout() pdf.savefig(fig, dpi=dpi) plt.close(fig) print(f"[OK] LV bubble grid PDF written: {pdf_path}") return pdf_path
-def aggregate_enrichr_within_sample(sample_dir: str, fdr_thr: float = 0.05, max_terms_bar: int = 30) -> bool: out_dir = os.path.join(sample_dir, "lv_overlap") os.makedirs(out_dir, exist_ok=True) lv_files = sorted(glob.glob(os.path.join(sample_dir, "enrichr_all_*.csv"))) if not lv_files: _write_empty_log(out_dir, [f"No per-LV Enrichr CSVs found in {sample_dir}"]) return False long_rows = [] fdr_candidates = ["_FDR_used", "Adjusted P-value", "FDR", "FDR q-value", "q-value", "qvalue"] p_candidates = ["P-value", "P value", "P-Value", "pvalue", "p-value", "p_val"] for fpath in lv_files: grp = re.sub(r"^enrichr_top_|\.csv$", "", os.path.basename(fpath))
-try: df = pd.read_csv(fpath)
-except Exception: continue if df is None or df.empty: continue fdr_col = next((c for c in fdr_candidates if c in df.columns), None) if fdr_col is None: p_col = next((c for c in p_candidates if c in df.columns), None) if p_col is None: continue pv = pd.to_numeric(df[p_col], errors="coerce") mask = pv.notna() fdr = np.full(len(df), np.nan, float) if mask.sum() > 0: fdr[mask.values] = multipletests(pv[mask].values, method="fdr_bh")[1] df["_FDR_used"] = fdr fdr_col = "_FDR_used" if "k" not in df.columns and "Overlap" in df.columns: df["k"] = _parse_overlap_k(df["Overlap"]) term = df["Term"] if "Term" in df.columns else "NA" lib = df["Library"] if "Library" in df.columns else "Unknown" long_rows.append(pd.DataFrame({ "LV": grp, "Term": term, "Library": lib, "FDR": pd.to_numeric(df[fdr_col], errors="coerce"), "k": pd.to_numeric(df.get("k", np.nan), errors="coerce"), })) if not long_rows: _write_empty_log(out_dir, ["No usable Enrichr rows found across LVs."]) return False long = pd.concat(long_rows, ignore_index=True).dropna(subset=["Term", "FDR"]) if long.empty: _write_empty_log(out_dir, ["All rows empty after cleaning."]) return False long.to_csv(os.path.join(out_dir, "lv_sample_long_raw.csv"), index=False) sig = long[long["FDR"] <= float(fdr_thr)].copy() if sig.empty: _write_empty_log(out_dir, [f"No terms with FDR ≤ {fdr_thr} across LVs."]) return False per_lib = ( sig.groupby(["Library", "Term"])["LV"].nunique() .rename("NumLVs").reset_index() .sort_values(["Library", "NumLVs", "Term"], ascending=[True, False, True]) ) per_lib.to_csv(os.path.join(out_dir, "lv_term_counts_by_library.csv"), index=False) overall = ( sig.groupby("Term")["LV"].nunique() .rename("NumLVs").reset_index() .sort_values(["NumLVs", "Term"], ascending=[False, True]) ) overall.to_csv(os.path.join(out_dir, "lv_term_counts_overall.csv"), index=False) eps = np.nextafter(0, 1) sig["_score"] = -np.log10(sig["FDR"].clip(lower=eps)) score = sig.groupby(["Term", "LV"])["_score"].max().unstack("LV", fill_value=0.0) score.to_csv(os.path.join(out_dir, "lv_by_terms_matrix.csv")) _plot_matrix( score, "Per-sample enrichment across LVs (best −log10 FDR per LV)", os.path.join(out_dir, "lv_by_terms_heatmap.png"), vmin=0.0, vmax=None, overlay_sig_thresh=None, truncate_y_at=90, cbar_label="-log10(FDR)", ) top = overall.head(max_terms_bar).iloc[::-1] plt.figure(figsize=(9, max(4, 0.35 * len(top)))) plt.barh(top["Term"].astype(str), top["NumLVs"]) plt.xlabel(f"# LVs with term (FDR ≤ {fdr_thr:g})") plt.title("Top recurrent pathways across LVs (this sample)") plt.tight_layout() plt.savefig(os.path.join(out_dir, "lv_overall_top_terms_bar.png"), dpi=300) plt.close() return True # ---------------------------- END FULL ENRICHMENT --------------------------- # -------------------------- END: ENRICHMENT BLOCK --------------------------
-# ============================================================================= # ✅ NEW: DisGeNET gene relevance scoring
+
+def make_xai_protocol_figure(output_path: str):
+    plt.figure(figsize=(10, 5))
+    ax = plt.gca()
+    ax.axis("off")
+
+    def box(xy, text):
+        x, y = xy
+        w, h = 1.9, 0.9
+        rect = FancyBboxPatch(
+            (x, y), w, h,
+            boxstyle="round,pad=0.02,rounding_size=0.05",
+            linewidth=1.2, fill=False
+        )
+        ax.add_patch(rect)
+        ax.text(x + w / 2, y + h / 2, text, ha="center", va="center", fontsize=10)
+        return (x, y, w, h)
+
+    def arrow(b1, b2):
+        x1, y1, w1, h1 = b1
+        x2, y2, w2, h2 = b2
+        p1 = (x1 + w1, y1 + h1 / 2)
+        p2 = (x2, y2 + h2 / 2)
+        ax.add_patch(ConnectionPatch(p1, p2, "data", "data", arrowstyle="->", lw=1.2))
+
+    A = box((0.3, 0.55), "SHAP-ranked SNPs\n(per LV, per sample)")
+    B = box((2.5, 0.55), "GWAS overlap\n(P, effect size)")
+    C = box((4.7, 0.55), "SNP→Gene mapping\n(cS2G / S2G)")
+    D = box((6.9, 0.80), "Gene relevance:\nDisGeNET (diseases)")
+    E = box((6.9, 0.30), "Pathways:\nKEGG/Reactome/GO")
+    F = box((8.9, 0.55), "Interpretation:\nper-LV & per-sample")
+
+    arrow(A, B); arrow(B, C); arrow(C, D); arrow(C, E); arrow(D, F); arrow(E, F)
+
+    ax.text(0.3, 0.1, "Fig. 3A – Protocol of XAI", fontsize=12)
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=300)
+    plt.close()
+
+
 # =============================================================================
-def _normalize_gene_symbol(g: str) -> str: g = str(g).strip() g = re.sub(r"\s+", "", g) return g
+# SHAP → Gene table builders (UPDATED with BIM support)
+# =============================================================================
+
+def build_latent_gene_table_from_shap(
+    base_dir: str,
+    disease: str,
+    LD: int,
+    NS: int,
+    L: int,
+    K: int,
+    s2g_path: str,
+    bim_file: Optional[str] = None,
+    latent_col: str = "Latent_Dim",
+    gene_col_out: str = "GENE",
+) -> pd.DataFrame:
+    """
+    Reads:
+      outputs/{disease}_LD{LD}_NS{NS}_L{L}_K{K}_top_snps_per_latent.csv
+    Maps SNP_ID -> GENE using s2g_path (TSV) with optional chr_pos->rsID via BIM.
+    Returns columns: [latent_col, gene_col_out]
+    """
+    shap_file = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_top_snps_per_latent.csv")
+    if not os.path.exists(shap_file):
+        raise FileNotFoundError(f"Missing SHAP file: {shap_file}")
+
+    shap_df = pd.read_csv(shap_file)
+    if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns:
+        raise ValueError(f"SHAP file missing required columns. Needs [{latent_col}, SNP_ID]. Got: {list(shap_df.columns)}")
+
+    s2g_df = _safe_read_table(s2g_path, sep="\t")
+    bim_df = _load_bim_map(bim_file) if bim_file else None
+
+    out = _map_shap_to_genes(
+        shap_df=shap_df,
+        s2g_df=s2g_df,
+        latent_col=latent_col,
+        gene_col_out=gene_col_out,
+        bim_df=bim_df,
+        require_bim_if_needed=(bim_file is None),
+    )
+    return out[[latent_col, gene_col_out]]
+
+
+def build_latent_gene_table_from_shap_sample(
+    base_dir: str,
+    disease: str,
+    LD: int,
+    NS: int,
+    L: int,
+    K: int,
+    sample_id: str,
+    s2g_path: str,
+    bim_file: Optional[str] = None,
+    latent_col: str = "Latent_Dim",
+    gene_col_out: str = "GENE",
+) -> pd.DataFrame:
+    """
+    Reads per-sample:
+      outputs/{disease}_LD{LD}_NS{NS}_L{L}_K{K}_{sample_id}_top_snps_per_latent.csv
+    """
+    sid = sample_id
+    if not sid.startswith("S"):
+        sid = f"S{sid}"
+    shap_file = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_{sid}_top_snps_per_latent.csv")
+    if not os.path.exists(shap_file):
+        alt = os.path.join(base_dir, "outputs", f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_S{sid.lstrip('S')}_top_snps_per_latent.csv")
+        if os.path.exists(alt):
+            shap_file = alt
+        else:
+            raise FileNotFoundError(f"Missing per-sample SHAP file: {shap_file}")
+
+    shap_df = pd.read_csv(shap_file)
+    if "SNP_ID" not in shap_df.columns or latent_col not in shap_df.columns:
+        raise ValueError(f"Per-sample SHAP file missing required columns. Needs [{latent_col}, SNP_ID].")
+
+    s2g_df = _safe_read_table(s2g_path, sep="\t")
+    bim_df = _load_bim_map(bim_file) if bim_file else None
+
+    out = _map_shap_to_genes(
+        shap_df=shap_df,
+        s2g_df=s2g_df,
+        latent_col=latent_col,
+        gene_col_out=gene_col_out,
+        bim_df=bim_df,
+        require_bim_if_needed=(bim_file is None),
+    )
+    return out[[latent_col, gene_col_out]]
+
+
+def build_latent_gene_table_from_shap_all_samples(
+    base_dir: str,
+    disease: str,
+    LD: int,
+    NS: int,
+    L: int,
+    K: int,
+    s2g_path: str,
+    bim_file: Optional[str] = None,
+    latent_col: str = "Latent_Dim",
+    gene_col_out: str = "GENE",
+) -> pd.DataFrame:
+    """
+    Reads all per-sample SHAP files for this config and concatenates them.
+
+    Returns long table with columns:
+      [latent_col, gene_col_out, Sample, SNP_ID]
+    """
+    outputs_dir = os.path.join(base_dir, "outputs")
+    pat = os.path.join(outputs_dir, f"{disease}_LD{LD}_NS{NS}_L{L}_K{K}_S*_top_snps_per_latent.csv")
+    files = sorted(glob.glob(pat))
+    if not files:
+        raise FileNotFoundError(f"No per-sample SHAP files found with pattern:\n{pat}")
+
+    s2g_df = _safe_read_table(s2g_path, sep="\t")
+    bim_df = _load_bim_map(bim_file) if bim_file else None
+
+    all_rows = []
+    for fp in files:
+        m = re.search(r"_S(\d+)_top_snps_per_latent\.csv$", fp)
+        sample = f"S{m.group(1)}" if m else "S?"
+
+        df = pd.read_csv(fp)
+        if df is None or df.empty:
+            continue
+        if "SNP_ID" not in df.columns or latent_col not in df.columns:
+            raise ValueError(f"{os.path.basename(fp)} missing required columns: [{latent_col}, SNP_ID]")
+
+        df["Sample"] = sample
+
+        mapped = _map_shap_to_genes(
+            shap_df=df,
+            s2g_df=s2g_df,
+            latent_col=latent_col,
+            gene_col_out=gene_col_out,
+            bim_df=bim_df,
+            require_bim_if_needed=(bim_file is None),
+        )
+
+        if "Sample" not in mapped.columns:
+            mapped["Sample"] = sample
+        if "SNP_ID" not in mapped.columns and "SNP_ID" in df.columns:
+            mapped["SNP_ID"] = df["SNP_ID"].astype(str).str.strip().values[:len(mapped)]
+
+        mapped = mapped[[latent_col, gene_col_out, "Sample", "SNP_ID"]].dropna()
+        all_rows.append(mapped)
+
+    if not all_rows:
+        raise RuntimeError("All per-sample SHAP files were empty or unmappable to genes.")
+
+    out = pd.concat(all_rows, ignore_index=True)
+    return out
+
+
+def write_gene_wide_matrix(
+    df_long: pd.DataFrame,
+    out_csv: str,
+    latent_col: str = "Latent_Dim",
+    gene_col: str = "GENE",
+):
+    """
+    Wide matrix: rows=GENE, cols = Sample__LV (e.g., S1__LV_0, S2__LV_0, ...)
+    Values = counts.
+    """
+    x = df_long.copy()
+    x["Col"] = x["Sample"].astype(str) + "__" + x[latent_col].astype(str)
+    mat = (
+        x.groupby([gene_col, "Col"], sort=False)
+        .size()
+        .unstack("Col", fill_value=0)
+        .sort_index(axis=1)
+    )
+    mat.to_csv(out_csv)
+    return out_csv
+
+
+# =============================================================================
+# Enrichment engines (UNCHANGED)
+# =============================================================================
+# (Your enrich_by_latent_enrichr, enrich_by_latent_gmt, LV bubble plots,
+#  aggregate_enrichr_within_sample remain the same as your provided version.)
+# To keep this answer readable, they are included exactly as-is below.
+# --------------------------  START: ENRICHMENT BLOCK  -------------------------
+
+# (PASTE: your enrich_by_latent_enrichr, enrich_by_latent_gmt,
+#  plot_single_lv_bubble_from_enrichr, plot_all_lvs_bubble_grid_from_enrichr,
+#  aggregate_enrichr_within_sample here)
+#
+# IMPORTANT: I am keeping your code unchanged. For brevity in this message,
+# I will re-insert the functions by referencing that they are the same as in
+# your last version, but in your actual file you MUST keep them.
+#
+# ✅ In this response, I will include them fully so the file is truly complete.
+
+# ---------------------------  BEGIN FULL ENRICHMENT  --------------------------
+
+def enrich_by_latent_enrichr(
+    merged_df: pd.DataFrame,
+    gene_sets: List[str],
+    output_dir: str,
+    gene_col: Optional[str] = None,
+    latent_col: str = "Latent_Dim",
+    sample_col: Optional[str] = None,
+    score_col: Optional[str] = None,
+    genes_per_lv: int = 200,
+    top_per_library: int = 10,
+    order_lvs_numeric: bool = True,
+    figure_dpi: int = 300,
+    overlay_sig_thresh: float = 1.30103,
+    vmax_raw: Optional[float] = 6.0,
+    enrichr_retries: int = 3,
+    enrichr_sleep_sec: float = 1.0,
+    heatmap_top_n: int = 10,
+    heatmap_top_method: str = "sig_count",
+    heatmap_topk_mean: int = 3,
+    heatmap_truncate_y: int = 90,
+    lv_order: str = "sig_count",
+) -> Dict[str, str]:
+    """
+    Enrichr per LV, writing BOTH:
+      - enrichr_all_{GROUP}.csv  : all pathways returned by Enrichr (no truncation)
+      - enrichr_top_{GROUP}.csv  : subset used for heatmap (Top-N per library)
+    """
+    if not GSEAPY_AVAILABLE:
+        raise ImportError("gseapy is not installed. Install with: pip install gseapy")
+
+    os.makedirs(output_dir, exist_ok=True)
+    if gene_col is None:
+        gene_col = _detect_gene_col(merged_df)
+
+    for c in [latent_col, gene_col]:
+        if c not in merged_df.columns:
+            raise ValueError(f"Required column '{c}' missing. Columns: {list(merged_df.columns)[:30]}")
+
+    df = merged_df.copy()
+
+    use_sample_in_group = False
+    if sample_col and sample_col in df.columns:
+        n_samp = df[sample_col].astype(str).nunique(dropna=True)
+        use_sample_in_group = (n_samp > 1)
+
+    if use_sample_in_group:
+        df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
+    else:
+        df["_group"] = df[latent_col].astype(str)
+
+    groups = sorted(df["_group"].unique())
+    if not groups:
+        _write_empty_log(output_dir, ["No groups found for Enrichr enrichment."])
+        return {}
+
+    if order_lvs_numeric:
+        groups = sorted(groups, key=_num_key_from_group)
+
+    def _top_k_genes(sub_df: pd.DataFrame, k: int) -> List[str]:
+        if score_col and score_col in sub_df.columns:
+            take = (
+                sub_df[[gene_col, score_col]]
+                .dropna(subset=[gene_col])
+                .astype({gene_col: str})
+                .sort_values(score_col, ascending=False)
+                .drop_duplicates(subset=[gene_col])
+            )
+            return list(take[gene_col].head(k))
+        s = sub_df[gene_col].astype(str).dropna()
+        return list(pd.unique(s))[:k]
+
+    heat_data: Dict[str, Dict[str, float]] = {}
+    gene_fingerprints = {}
+
+    for grp in groups:
+        sub = df.loc[df["_group"] == grp]
+        genes = _top_k_genes(sub, genes_per_lv)
+        gene_fingerprints[grp] = (len(genes), _hash_list(genes[:50]))
+
+        if len(genes) < 3:
+            pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_all_{grp}.csv"), index=False)
+            pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False)
+            continue
+
+        all_results = []
+        for lib in gene_sets:
+            last_err = None
+            enr_res = None
+
+            for _try in range(max(1, int(enrichr_retries))):
+                try:
+                    enr = _enrichr(gene_list=genes, gene_sets=lib, organism="Human", outdir=None, cutoff=1.0)
+                    enr_res = enr.results
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(float(enrichr_sleep_sec))
+
+            if enr_res is None or (hasattr(enr_res, "empty") and enr_res.empty):
+                if last_err:
+                    print(f"[WARN] Enrichr failed for {lib} / {grp}: {last_err}")
+                continue
+
+            r = enr_res.copy()
+            for col in ["Adjusted P-value", "P-value", "Combined Score", "Odds Ratio"]:
+                if col in r.columns:
+                    r[col] = pd.to_numeric(r[col], errors="coerce")
+
+            adj_col = _pick_adj_p_column(r)
+            raw_col = _pick_raw_p_column(r)
+            if adj_col is not None:
+                r["_FDR_used"] = pd.to_numeric(r[adj_col], errors="coerce")
+            elif raw_col is not None:
+                pv = pd.to_numeric(r[raw_col], errors="coerce")
+                fdr = np.full(len(pv), np.nan, dtype=float)
+                mask = pv.notna()
+                if mask.sum() > 0:
+                    fdr[mask.values] = _bh_fdr(pv[mask].values)
+                r["_FDR_used"] = fdr
+                print(f"[WARN] {grp}/{lib}: no adjusted-p column; computed BH-FDR from raw p.")
+            else:
+                continue
+
+            if "Overlap" in r.columns:
+                r["k"] = _parse_overlap_k(r["Overlap"])
+            elif "k" not in r.columns:
+                r["k"] = np.nan
+
+            r["Library"] = lib
+            r["Group"] = grp
+
+            if sample_col and sample_col in sub.columns:
+                r["Sample"] = str(sub[sample_col].iloc[0]) if sub[sample_col].notna().any() else ""
+
+            all_results.append(r)
+
+        if all_results:
+            df_all = pd.concat(all_results, ignore_index=True)
+
+            all_csv = os.path.join(output_dir, f"enrichr_all_{grp}.csv")
+            df_all.to_csv(all_csv, index=False)
+
+            df_all2 = df_all.dropna(subset=["_FDR_used"]).copy()
+            if not df_all2.empty:
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", FutureWarning)
+                    top_hits = (
+                        df_all2.groupby("Library", group_keys=False)
+                        .apply(lambda x: x.nsmallest(top_per_library, "_FDR_used"))
+                    )
+                top_csv = os.path.join(output_dir, f"enrichr_top_{grp}.csv")
+                top_hits.to_csv(top_csv, index=False)
+
+                for _, row in top_hits.iterrows():
+                    term = f"{row.get('Term', 'NA')} ({row.get('Library', 'NA')})"
+                    q = row["_FDR_used"]
+                    if pd.isna(q) or q <= 0:
+                        q = np.nextafter(0, 1)
+                    heat_data.setdefault(term, {})[grp] = -np.log10(q)
+            else:
+                pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False)
+        else:
+            pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_all_{grp}.csv"), index=False)
+            pd.DataFrame().to_csv(os.path.join(output_dir, f"enrichr_top_{grp}.csv"), index=False)
+
+    fp = pd.DataFrame(
+        [(g, n, h) for g, (n, h) in gene_fingerprints.items()],
+        columns=["Group", "NumGenesSent", "Top50Hash"]
+    ).set_index("Group")
+    fp = fp.reindex(groups)
+    fp.to_csv(os.path.join(output_dir, "debug_gene_list_fingerprints.csv"))
+
+    if not heat_data:
+        _write_empty_log(output_dir, ["Enrichr returned no usable results for any group."])
+        return {}
+
+    heat_df = pd.DataFrame(heat_data).T.reindex(columns=groups).fillna(0.0)
+    heat_raw_csv = os.path.join(output_dir, "enrichr_pathway_heatmap_matrix.raw.csv")
+    heat_df.to_csv(heat_raw_csv)
+
+    heat_df_disp = heat_df.copy()
+    heat_df_disp.columns = [_display_as_lv(c) for c in heat_df_disp.columns]
+    lv_cols_sorted = _lv_order_columns(heat_df_disp, lv_order=lv_order, overlay_sig_thresh=overlay_sig_thresh)
+    heat_df_disp = heat_df_disp.loc[:, lv_cols_sorted]
+
+    lv_sig_counts = (heat_df_disp >= overlay_sig_thresh).sum(axis=0)
+    lv_sig_counts.to_csv(os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.in_heatmap_order.csv"))
+    lv_sig_counts.sort_values(ascending=False).to_csv(os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.sorted.csv"))
+
+    _plot_sig_count_bar(
+        lv_sig_counts,
+        out_png=os.path.join(output_dir, "figS_sig_counts_per_LV.png"),
+        title=f"Fig. S — Significant pathways per LV (q<0.05) — order={lv_order}",
+        dpi=figure_dpi,
+        ylabel="# pathways (q<0.05)",
+    )
+
+    colcorr = _plot_lv_dendrogram(
+        heat_df_disp,
+        out_png=os.path.join(output_dir, "figS_lv_dendrogram.png"),
+        dpi=figure_dpi
+    )
+    colcorr.to_csv(os.path.join(output_dir, "enrichr_lv_spearman_corr.csv"))
+
+    _plot_matrix(
+        mat=heat_df_disp,
+        title=f"LV×Pathway enrichment (Enrichr) — raw -log10(FDR) (FULL) — order={lv_order}",
+        out_png=os.path.join(output_dir, "fig_pathway_heatmap_raw.png"),
+        dpi=figure_dpi,
+        vmin=0.0,
+        vmax=vmax_raw,
+        overlay_sig_thresh=overlay_sig_thresh,
+        truncate_y_at=heatmap_truncate_y,
+        cbar_label="-log10(FDR)",
+    )
+
+    z = (heat_df_disp.T - heat_df_disp.mean(axis=1)).T
+    denom = heat_df_disp.std(axis=1).replace(0, 1.0)
+    z = z.div(denom, axis=0)
+    z.to_csv(os.path.join(output_dir, "enrichr_pathway_heatmap_matrix.rowz.csv"))
+
+    _plot_matrix(
+        mat=z,
+        title=f"LV×Pathway enrichment (Enrichr) — row-z (FULL) — order={lv_order}",
+        out_png=os.path.join(output_dir, "fig_pathway_heatmap_rowz.png"),
+        dpi=figure_dpi,
+        vmin=None,
+        vmax=None,
+        overlay_sig_thresh=None,
+        truncate_y_at=heatmap_truncate_y,
+        cbar_label="row-z",
+    )
+
+    top_n = int(heatmap_top_n) if heatmap_top_n is not None else 0
+    if top_n > 0:
+        heat_top = select_top_pathways_for_plot(
+            heat_df_disp,
+            top_n=top_n,
+            method=str(heatmap_top_method),
+            sig_thresh=overlay_sig_thresh,
+            topk=int(heatmap_topk_mean),
+        )
+        heat_top.to_csv(os.path.join(output_dir, f"enrichr_pathway_heatmap_matrix.raw_top{top_n}.csv"))
+
+        _plot_matrix(
+            mat=heat_top,
+            title=f"LV×Pathway enrichment (Enrichr) — raw (Top {top_n}, {heatmap_top_method}) — order={lv_order}",
+            out_png=os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png"),
+            dpi=figure_dpi,
+            vmin=0.0,
+            vmax=vmax_raw,
+            overlay_sig_thresh=overlay_sig_thresh,
+            truncate_y_at=heatmap_truncate_y,
+            cbar_label="-log10(FDR)",
+        )
+
+        z_top = z.loc[heat_top.index]
+        z_top.to_csv(os.path.join(output_dir, f"enrichr_pathway_heatmap_matrix.rowz_top{top_n}.csv"))
+
+        _plot_matrix(
+            mat=z_top,
+            title=f"LV×Pathway enrichment (Enrichr) — row-z (Top {top_n}, {heatmap_top_method}) — order={lv_order}",
+            out_png=os.path.join(output_dir, f"fig_pathway_heatmap_rowz_top{top_n}.png"),
+            dpi=figure_dpi,
+            vmin=None,
+            vmax=None,
+            overlay_sig_thresh=None,
+            truncate_y_at=heatmap_truncate_y,
+            cbar_label="row-z",
+        )
+
+    return {
+        "heat_raw_csv": heat_raw_csv,
+        "heatmap_raw_png": os.path.join(output_dir, "fig_pathway_heatmap_raw.png"),
+        "heatmap_rowz_png": os.path.join(output_dir, "fig_pathway_heatmap_rowz.png"),
+        "lv_sig_counts_csv": os.path.join(output_dir, "enrichr_lv_sig_counts_q0.05.in_heatmap_order.csv"),
+        "lv_dendrogram_png": os.path.join(output_dir, "figS_lv_dendrogram.png"),
+        "heatmap_raw_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png") if top_n > 0 else ""),
+        "heatmap_rowz_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_rowz_top{top_n}.png") if top_n > 0 else ""),
+    }
+
+
+def enrich_by_latent_gmt(
+    merged_df: pd.DataFrame,
+    gmt_files: List[str],
+    output_dir: str,
+    gene_col: Optional[str] = None,
+    latent_col: str = "Latent_Dim",
+    sample_col: Optional[str] = None,
+    top_per_latent: int = 15,
+    order_lvs_numeric: bool = True,
+    figure_dpi: int = 300,
+    overlay_sig_thresh: float = 1.30103,
+    vmax_raw: Optional[float] = 6.0,
+    heatmap_top_n: int = 10,
+    heatmap_top_method: str = "sig_count",
+    heatmap_topk_mean: int = 3,
+    heatmap_truncate_y: int = 90,
+    lv_order: str = "sig_count",
+) -> Dict[str, str]:
+    os.makedirs(output_dir, exist_ok=True)
+    if gene_col is None:
+        gene_col = _detect_gene_col(merged_df)
+
+    pathway_db: Dict[str, set] = {}
+    for gmt in gmt_files:
+        if not os.path.exists(gmt):
+            print(f"[WARN] GMT not found: {gmt}")
+            continue
+        dbname = os.path.splitext(os.path.basename(gmt))[0]
+        gsets = _read_gmt(gmt)
+        for pname, genes in gsets.items():
+            pathway_db[f"{dbname}::{pname}"] = set(map(str, genes))
+
+    if not pathway_db:
+        _write_empty_log(output_dir, ["No GMTs loaded or all empty."])
+        return {}
+
+    universe = set().union(*pathway_db.values())
+    if len(universe) == 0:
+        _write_empty_log(output_dir, ["Pathway universe empty (no genes across GMTs)."])
+        return {}
+
+    df = merged_df.copy()
+    df["_gene"] = df[gene_col].astype(str)
+    df = df[df["_gene"].isin(universe)]
+
+    if sample_col and sample_col in df.columns:
+        df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
+    else:
+        df["_group"] = df[latent_col].astype(str)
+
+    groups = sorted(df["_group"].unique())
+    if not groups:
+        _write_empty_log(output_dir, ["No groups found for GMT enrichment."])
+        return {}
+
+    if order_lvs_numeric:
+        groups = sorted(groups, key=_num_key_from_group)
+
+    pathways = list(pathway_db.keys())
+    N = len(universe)
+
+    heat = pd.DataFrame(0.0, index=pathways, columns=groups)
+    any_rows = False
+
+    for grp in groups:
+        gset_input = set(df.loc[df["_group"] == grp, "_gene"].unique())
+        n = len(gset_input)
+        if n == 0:
+            continue
+
+        rows = []
+        for pw in pathways:
+            pw_genes = pathway_db[pw]
+            K = len(pw_genes)
+            k = len(gset_input & pw_genes)
+            if k == 0:
+                continue
+            p = _hypergeo_pval(k, K, n, N)
+            rows.append((pw, k, K, n, N, p))
+
+        if not rows:
+            continue
+
+        any_rows = True
+        dfp = pd.DataFrame(rows, columns=["Pathway", "k", "K", "n", "N", "pval"]).sort_values("pval")
+        dfp["FDR"] = _bh_fdr(dfp["pval"].values)
+        dfp["minus_log10_FDR"] = -np.log10(dfp["FDR"].replace(0, np.nextafter(0, 1)))
+        dfp["Group"] = grp
+        dfp.head(top_per_latent).to_csv(os.path.join(output_dir, f"pathways_top_{grp}.csv"), index=False)
+
+        for _, r in dfp.iterrows():
+            heat.at[r["Pathway"], grp] = r["minus_log10_FDR"]
+
+    if not any_rows:
+        _write_empty_log(output_dir, ["No pathway overlaps found in GMT enrichment."])
+        return {}
+
+    heat_csv = os.path.join(output_dir, "gmt_pathway_heatmap_matrix.csv")
+    heat.to_csv(heat_csv)
+
+    heat_disp = heat.copy()
+    heat_disp.columns = [_display_as_lv(c) for c in heat_disp.columns]
+
+    lv_cols_sorted = _lv_order_columns(heat_disp, lv_order=lv_order, overlay_sig_thresh=overlay_sig_thresh)
+    heat_disp = heat_disp.loc[:, lv_cols_sorted]
+
+    _plot_matrix(
+        mat=heat_disp,
+        title=f"LV×Pathway enrichment (GMT) — raw -log10(FDR) (FULL) — order={lv_order}",
+        out_png=os.path.join(output_dir, "fig_pathway_heatmap_raw.png"),
+        dpi=figure_dpi,
+        vmin=0.0,
+        vmax=vmax_raw,
+        overlay_sig_thresh=overlay_sig_thresh,
+        truncate_y_at=heatmap_truncate_y,
+        cbar_label="-log10(FDR)",
+    )
+
+    top_n = int(heatmap_top_n) if heatmap_top_n is not None else 0
+    if top_n > 0:
+        heat_top = select_top_pathways_for_plot(
+            heat_disp,
+            top_n=top_n,
+            method=str(heatmap_top_method),
+            sig_thresh=overlay_sig_thresh,
+            topk=int(heatmap_topk_mean),
+        )
+        heat_top.to_csv(os.path.join(output_dir, f"gmt_pathway_heatmap_matrix.top{top_n}.csv"))
+        _plot_matrix(
+            mat=heat_top,
+            title=f"LV×Pathway enrichment (GMT) — raw (Top {top_n}, {heatmap_top_method}) — order={lv_order}",
+            out_png=os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png"),
+            dpi=figure_dpi,
+            vmin=0.0,
+            vmax=vmax_raw,
+            overlay_sig_thresh=overlay_sig_thresh,
+            truncate_y_at=heatmap_truncate_y,
+            cbar_label="-log10(FDR)",
+        )
+
+    return {
+        "heat_raw_csv": heat_csv,
+        "heatmap_raw_png": os.path.join(output_dir, "fig_pathway_heatmap_raw.png"),
+        "heatmap_raw_top_png": (os.path.join(output_dir, f"fig_pathway_heatmap_raw_top{top_n}.png") if top_n > 0 else ""),
+    }
+
+
+def plot_single_lv_bubble_from_enrichr(
+    output_dir: str,
+    group_name: str,
+    csv_prefix: str = "enrichr_all_",
+    max_terms: int = 20,
+    min_k: int = 1,
+    fname_prefix: str = "fig_LV_bubble_",
+    fixed_k_legend: Tuple[int, ...] = (1, 2, 5, 10),
+    pval_color_limits: Tuple[float, float] = (0.0, 20.0),
+    display_name: Optional[str] = None,
+    truncate_y_at: int = 85,
+    dpi: int = 300,
+) -> Optional[str]:
+    fpath = os.path.join(output_dir, f"{csv_prefix}{group_name}.csv")
+    if not os.path.exists(fpath):
+        print(f"[WARN] Missing {fpath}; skip LV bubble for {group_name}")
+        return None
+
+    df = pd.read_csv(fpath)
+    if df is None or df.empty:
+        print(f"[INFO] Empty {fpath}; skip LV bubble for {group_name}")
+        return None
+
+    for col in ["Adjusted P-value", "P-value", "FDR", "q-value", "qvalue", "_FDR_used"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    p_col = _pick_raw_p_column(df)
+    adj_col = _pick_adj_p_column(df)
+
+    if p_col is not None:
+        color_values = df[p_col].astype(float)
+        color_label = "-log10(P-value)"
+        vmin, vmax = pval_color_limits
+    elif adj_col is not None:
+        color_values = df[adj_col].astype(float)
+        color_label = "-log10(FDR)"
+        vmin, vmax = 0.0, 10.0
+    else:
+        print(f"[WARN] {group_name}: no usable P/FDR column; skip LV bubble.")
+        return None
+
+    if "Overlap" in df.columns:
+        k_vals = []
+        size_vals = []
+        for s in df["Overlap"].astype(str).fillna(""):
+            try:
+                a, b = s.split("/")
+                k_vals.append(float(a))
+                size_vals.append(float(b))
+            except Exception:
+                k_vals.append(np.nan)
+                size_vals.append(np.nan)
+        df["k"] = k = pd.Series(k_vals, index=df.index)
+        term_size = pd.Series(size_vals, index=df.index)
+        pct = 100.0 * (k / term_size)
+    elif "k" in df.columns:
+        k = pd.to_numeric(df["k"], errors="coerce")
+        pct = k.copy()
+    else:
+        print(f"[WARN] {group_name}: neither Overlap nor k found; skip LV bubble.")
+        return None
+
+    keep = (k.fillna(0) >= float(min_k)) & color_values.notna()
+    d = df.loc[keep].copy()
+    if d.empty:
+        print(f"[INFO] {group_name}: no rows passing k>={min_k}.")
+        return None
+
+    eps = np.nextafter(0, 1)
+    d["_score"] = -np.log10(color_values.loc[d.index].clip(lower=eps))
+    d["_pct"] = pct.loc[d.index].astype(float)
+
+    d = d.sort_values(["_score", "_pct"], ascending=[False, False]).head(max_terms)
+
+    full_terms = d["Term"] if "Term" in d.columns else pd.Series([f"term_{i}" for i in range(len(d))], index=d.index)
+    y_terms = full_terms.apply(lambda t: t if len(str(t)) <= truncate_y_at else str(t)[:truncate_y_at - 1] + "…")
+
+    sizes_arr = pd.to_numeric(d["k"], errors="coerce").fillna(0).values
+    max_k = float(np.nanmax(sizes_arr)) if np.nanmax(sizes_arr) > 0 else 1.0
+    base, scale = 40.0, 300.0
+    bubble_sizes = base + scale * (sizes_arr / max_k)
+
+    if display_name is None:
+        display_name = _display_as_lv(group_name)
+
+    plt.figure(figsize=(8.6, max(5.2, 0.50 * len(d))))
+    ax = plt.gca()
+    sc = ax.scatter(
+        d["_pct"].values,
+        y_terms,
+        s=bubble_sizes,
+        c=d["_score"].values,
+        cmap="viridis",
+        vmin=vmin,
+        vmax=vmax,
+        edgecolor="k",
+        linewidth=0.4,
+        alpha=0.95,
+        zorder=2,
+    )
+
+    for xv, yv, kval in zip(d["_pct"].values, y_terms, d["k"].values):
+        if pd.notna(kval) and kval > 0:
+            ax.text(xv, yv, f"{int(kval)}", ha="center", va="center", fontsize=7, color="white", zorder=3)
+
+    cbar = plt.colorbar(sc, ax=ax, pad=0.01)
+    cbar.set_label(color_label)
+
+    legend_k = list(fixed_k_legend)
+    legend_norm = max(max_k, max(legend_k))
+    legend_sizes = [base + scale * (k_ / legend_norm) for k_ in legend_k]
+    handles = [
+        plt.Line2D([0], [0], marker="o", linestyle="", markersize=(s_ ** 0.5),
+                   markerfacecolor="none", markeredgecolor="k", label=f"{int(k_)}")
+        for k_, s_ in zip(legend_k, legend_sizes)
+    ]
+    ax.legend(handles, [f"{int(k_)}" for k_ in legend_k], title="Gene overlap (k)",
+              loc="upper right", bbox_to_anchor=(1.35, 1.0), frameon=False)
+
+    ax.set_xlabel("% associated genes (k / term size × 100)")
+    ax.set_ylabel("Pathway term")
+    ax.set_title(f"{display_name} — top {len(d)} enriched terms")
+    plt.subplots_adjust(right=0.82)
+    plt.tight_layout()
+
+    out_png = os.path.join(output_dir, f"{fname_prefix}{group_name}.png")
+    plt.savefig(out_png, dpi=dpi)
+    plt.close()
+    print(f"[OK] LV bubble written: {out_png}")
+    return out_png
+
+
+def plot_all_lvs_bubble_grid_from_enrichr(
+    output_dir: str,
+    csv_prefix: str = "enrichr_all_",
+    groups: Optional[List[str]] = None,
+    max_terms: int = 15,
+    min_k: int = 1,
+    ncols: int = 4,
+    page_size: Tuple[float, float] = (11, 8.5),
+    dpi: int = 300,
+    fname_pdf: str = "fig_LV_bubble_grid.pdf",
+) -> Optional[str]:
+    paths = []
+    if groups is None:
+        paths = sorted(glob.glob(os.path.join(output_dir, f"{csv_prefix}*.csv")))
+        groups = [re.sub(rf"^{csv_prefix}", "", os.path.basename(p)).replace(".csv", "") for p in paths]
+    else:
+        paths = [os.path.join(output_dir, f"{csv_prefix}{g}.csv") for g in groups]
+
+    if not paths:
+        print("[WARN] No per-LV enrichr CSVs found; skip LV grid.")
+        return None
+
+    per_group_tables = {}
+    global_k_max = 0.0
+    global_score_max = 0.0
+
+    def _bh(pvals):
+        p = pd.Series(pvals, dtype=float)
+        mask = p.notna()
+        out = np.full(len(p), np.nan, float)
+        if mask.sum() > 0:
+            out[mask.values] = multipletests(p[mask].values, method="fdr_bh")[1]
+        return out
+
+    for grp, fpath in zip(groups, paths):
+        if not os.path.exists(fpath):
+            continue
+        df = pd.read_csv(fpath)
+        if df is None or df.empty:
+            continue
+
+        for col in ["Adjusted P-value", "P-value", "FDR", "q-value", "qvalue", "_FDR_used"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+
+        adj_col = _pick_adj_p_column(df)
+        raw_col = _pick_raw_p_column(df)
+
+        if adj_col is not None:
+            df["_FDR"] = pd.to_numeric(df[adj_col], errors="coerce")
+        elif raw_col is not None:
+            df["_FDR"] = _bh(pd.to_numeric(df[raw_col], errors="coerce").values)
+        else:
+            continue
+
+        if "Overlap" in df.columns:
+            k_vals, size_vals = [], []
+            for s in df["Overlap"].astype(str).fillna(""):
+                try:
+                    a, b = s.split("/")
+                    k_vals.append(float(a)); size_vals.append(float(b))
+                except Exception:
+                    k_vals.append(np.nan); size_vals.append(np.nan)
+            df["k"] = pd.Series(k_vals, index=df.index)
+            df["_pct"] = 100.0 * (df["k"] / pd.Series(size_vals, index=df.index))
+        elif "k" in df.columns:
+            df["k"] = pd.to_numeric(df["k"], errors="coerce")
+            df["_pct"] = df["k"].astype(float)
+        else:
+            continue
+
+        keep = (df["k"].fillna(0) >= float(min_k)) & df["_FDR"].notna()
+        d = df.loc[keep].copy()
+        if d.empty:
+            continue
+
+        eps = np.nextafter(0, 1)
+        d["_score"] = -np.log10(d["_FDR"].clip(lower=eps))
+        d = d.sort_values("_score", ascending=False).head(max_terms)
+
+        global_k_max = max(global_k_max, float(d["k"].max(skipna=True)))
+        global_score_max = max(global_score_max, float(d["_score"].max(skipna=True)))
+        per_group_tables[grp] = d
+
+    if not per_group_tables:
+        print("[WARN] No usable LV tables for bubble grid.")
+        return None
+
+    valid_groups = sorted(per_group_tables.keys(), key=_num_key_from_group)
+    n = len(valid_groups)
+
+    ncols = max(1, int(ncols))
+    nrows = 2 if n <= 2 * ncols else 3 if n <= 3 * ncols else 4
+    per_page = nrows * ncols
+    n_pages = math.ceil(n / per_page)
+
+    def bubble_sizes_from_k(k_series):
+        k_vals = k_series.fillna(0).values
+        if global_k_max > 0:
+            return 250 * (k_vals / global_k_max) + 30
+        return np.full_like(k_vals, 30, dtype=float)
+
+    pdf_path = os.path.join(output_dir, fname_pdf)
+    with PdfPages(pdf_path) as pdf:
+        for page in range(n_pages):
+            start = page * per_page
+            end = min((page + 1) * per_page, n)
+            page_groups = valid_groups[start:end]
+
+            fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=page_size, squeeze=False)
+            all_axes = axes.ravel()
+
+            last_sc = None
+            for ax, grp in zip(all_axes, page_groups):
+                d = per_group_tables[grp]
+                y_terms = d["Term"] if "Term" in d.columns else pd.Series([f"term_{i}" for i in range(len(d))], index=d.index)
+                sizes = bubble_sizes_from_k(d["k"])
+                last_sc = ax.scatter(
+                    d["_pct"].values, y_terms,
+                    s=sizes,
+                    c=d["_score"].values,
+                    vmin=0, vmax=global_score_max if global_score_max > 0 else None,
+                    cmap="viridis",
+                    edgecolor="k", linewidth=0.3
+                )
+                for xv, yv, kval in zip(d["_pct"].values, y_terms, d["k"].values):
+                    if pd.notna(kval) and kval > 0:
+                        ax.text(xv, yv, f"{int(kval)}", ha="center", va="center", fontsize=6, color="white")
+
+                ax.set_title(_display_as_lv(grp), fontsize=9, pad=2)
+                ax.set_xlabel("% associated genes", fontsize=8)
+                ax.set_ylabel("Pathway", fontsize=8)
+                ax.tick_params(axis="both", labelsize=7)
+
+            for ax in all_axes[len(page_groups):]:
+                ax.axis("off")
+
+            if last_sc is not None:
+                cbar = fig.colorbar(last_sc, ax=all_axes.tolist(), pad=0.01, fraction=0.02)
+                cbar.set_label("-log10(FDR)", fontsize=8)
+                cbar.ax.tick_params(labelsize=7)
+
+            fig.tight_layout()
+            pdf.savefig(fig, dpi=dpi)
+            plt.close(fig)
+
+    print(f"[OK] LV bubble grid PDF written: {pdf_path}")
+    return pdf_path
+
+
+def aggregate_enrichr_within_sample(sample_dir: str, fdr_thr: float = 0.05, max_terms_bar: int = 30) -> bool:
+    out_dir = os.path.join(sample_dir, "lv_overlap")
+    os.makedirs(out_dir, exist_ok=True)
+
+    lv_files = sorted(glob.glob(os.path.join(sample_dir, "enrichr_all_*.csv")))
+    if not lv_files:
+        _write_empty_log(out_dir, [f"No per-LV Enrichr CSVs found in {sample_dir}"])
+        return False
+
+    long_rows = []
+    fdr_candidates = ["_FDR_used", "Adjusted P-value", "FDR", "FDR q-value", "q-value", "qvalue"]
+    p_candidates = ["P-value", "P value", "P-Value", "pvalue", "p-value", "p_val"]
+
+    for fpath in lv_files:
+        grp = re.sub(r"^enrichr_top_|\.csv$", "", os.path.basename(fpath))
+        try:
+            df = pd.read_csv(fpath)
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+
+        fdr_col = next((c for c in fdr_candidates if c in df.columns), None)
+        if fdr_col is None:
+            p_col = next((c for c in p_candidates if c in df.columns), None)
+            if p_col is None:
+                continue
+            pv = pd.to_numeric(df[p_col], errors="coerce")
+            mask = pv.notna()
+            fdr = np.full(len(df), np.nan, float)
+            if mask.sum() > 0:
+                fdr[mask.values] = multipletests(pv[mask].values, method="fdr_bh")[1]
+            df["_FDR_used"] = fdr
+            fdr_col = "_FDR_used"
+
+        if "k" not in df.columns and "Overlap" in df.columns:
+            df["k"] = _parse_overlap_k(df["Overlap"])
+
+        term = df["Term"] if "Term" in df.columns else "NA"
+        lib = df["Library"] if "Library" in df.columns else "Unknown"
+
+        long_rows.append(pd.DataFrame({
+            "LV": grp,
+            "Term": term,
+            "Library": lib,
+            "FDR": pd.to_numeric(df[fdr_col], errors="coerce"),
+            "k": pd.to_numeric(df.get("k", np.nan), errors="coerce"),
+        }))
+
+    if not long_rows:
+        _write_empty_log(out_dir, ["No usable Enrichr rows found across LVs."])
+        return False
+
+    long = pd.concat(long_rows, ignore_index=True).dropna(subset=["Term", "FDR"])
+    if long.empty:
+        _write_empty_log(out_dir, ["All rows empty after cleaning."])
+        return False
+
+    long.to_csv(os.path.join(out_dir, "lv_sample_long_raw.csv"), index=False)
+
+    sig = long[long["FDR"] <= float(fdr_thr)].copy()
+    if sig.empty:
+        _write_empty_log(out_dir, [f"No terms with FDR ≤ {fdr_thr} across LVs."])
+        return False
+
+    per_lib = (
+        sig.groupby(["Library", "Term"])["LV"].nunique()
+        .rename("NumLVs").reset_index()
+        .sort_values(["Library", "NumLVs", "Term"], ascending=[True, False, True])
+    )
+    per_lib.to_csv(os.path.join(out_dir, "lv_term_counts_by_library.csv"), index=False)
+
+    overall = (
+        sig.groupby("Term")["LV"].nunique()
+        .rename("NumLVs").reset_index()
+        .sort_values(["NumLVs", "Term"], ascending=[False, True])
+    )
+    overall.to_csv(os.path.join(out_dir, "lv_term_counts_overall.csv"), index=False)
+
+    eps = np.nextafter(0, 1)
+    sig["_score"] = -np.log10(sig["FDR"].clip(lower=eps))
+    score = sig.groupby(["Term", "LV"])["_score"].max().unstack("LV", fill_value=0.0)
+    score.to_csv(os.path.join(out_dir, "lv_by_terms_matrix.csv"))
+
+    _plot_matrix(
+        score,
+        "Per-sample enrichment across LVs (best −log10 FDR per LV)",
+        os.path.join(out_dir, "lv_by_terms_heatmap.png"),
+        vmin=0.0, vmax=None, overlay_sig_thresh=None, truncate_y_at=90,
+        cbar_label="-log10(FDR)",
+    )
+
+    top = overall.head(max_terms_bar).iloc[::-1]
+    plt.figure(figsize=(9, max(4, 0.35 * len(top))))
+    plt.barh(top["Term"].astype(str), top["NumLVs"])
+    plt.xlabel(f"# LVs with term (FDR ≤ {fdr_thr:g})")
+    plt.title("Top recurrent pathways across LVs (this sample)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(out_dir, "lv_overall_top_terms_bar.png"), dpi=300)
+    plt.close()
+
+    return True
+
+# ----------------------------  END FULL ENRICHMENT  ---------------------------
+# --------------------------  END: ENRICHMENT BLOCK  --------------------------
+
+
+# =============================================================================
+# ✅ NEW: DisGeNET gene relevance scoring
+# =============================================================================
+
+def _normalize_gene_symbol(g: str) -> str:
+    g = str(g).strip()
+    g = re.sub(r"\s+", "", g)
+    return g
+
+
 def _detect_disgenet_schema(df: pd.DataFrame) -> Dict[str, Optional[str]]:
-"""
-Auto-detect DisGeNET TSV schema: - gene symbol column - diseaseId / disease_id / diseaseid / UMLS CUI column - disease name column - score column
-"""
-cols = list(df.columns) low = {c.lower(): c for c in cols} gene_cands = ["geneSymbol", "gene_symbol", "gene", "symbol", "hgnc_symbol", "Gene", "GENE"] dis_cands = ["diseaseId", "disease_id", "diseaseid", "umls", "cui", "disease_cui", "doid_code", "doid", "doidid", "do_id"] name_cands = ["diseaseName", "disease_name", "disease", "name", "doid_name", "doid_name", "do_name"] score_cands = ["score", "gda_score", "disgenetScore", "disgenet_score", "EI", "ei", "score_max", "score_mean", "scoreMin", "score_min"]
-def pick(cands): for w in cands: if w.lower() in low: return low[w.lower()] return None gene_col = pick(gene_cands) dis_col = pick(dis_cands) name_col = pick(name_cands) score_col = None for w in score_cands: if w.lower() in low: score_col = low[w.lower()] break # fallback: choose a numeric-ish score column if needed if score_col is None: num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])] if num_cols: score_col = num_cols[0] return { "gene_col": gene_col, "disease_id_col": dis_col, "disease_name_col": name_col, "score_col": score_col, }
+    """
+    Auto-detect DisGeNET TSV schema:
+      - gene symbol column
+      - diseaseId / disease_id / diseaseid / UMLS CUI column
+      - disease name column
+      - score column
+    """
+    cols = list(df.columns)
+    low = {c.lower(): c for c in cols}
+
+    gene_cands = ["geneSymbol", "gene_symbol", "gene", "symbol", "hgnc_symbol", "Gene", "GENE"]
+    dis_cands  = ["diseaseId", "disease_id", "diseaseid", "umls", "cui", "disease_cui",
+             "doid_code", "doid", "doidid", "do_id"]
+
+    name_cands = ["diseaseName", "disease_name", "disease", "name",
+              "doid_name", "doid_name", "do_name"]
+
+    score_cands = ["score", "gda_score", "disgenetScore", "disgenet_score", "EI", "ei",
+               "score_max", "score_mean", "scoreMin", "score_min"]
+
+    def pick(cands):
+        for w in cands:
+            if w.lower() in low:
+                return low[w.lower()]
+        return None
+
+    gene_col = pick(gene_cands)
+    dis_col = pick(dis_cands)
+    name_col = pick(name_cands)
+
+    score_col = None
+    for w in score_cands:
+        if w.lower() in low:
+            score_col = low[w.lower()]
+            break
+
+    # fallback: choose a numeric-ish score column if needed
+    if score_col is None:
+        num_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
+        if num_cols:
+            score_col = num_cols[0]
+
+    return {
+        "gene_col": gene_col,
+        "disease_id_col": dis_col,
+        "disease_name_col": name_col,
+        "score_col": score_col,
+    }
+
+
 def _disgenet_auth_token(email: str, password: str, timeout: float = 30.0) -> str:
-"""
-Auth flow: POST https://www.disgenet.org/api/auth/ {email,password} -> {token} (Matches known DisGeNET client implementations.) :contentReference[oaicite:1]{index=1}
-"""
-if not REQUESTS_OK: raise ImportError("requests is required for DisGeNET API mode. pip install requests") url = "https://www.disgenet.org/api/auth/" r = requests.post(url, headers={"accept": "*/*"}, data={"email": email, "password": password}, timeout=timeout) if r.status_code != 200: raise RuntimeError(f"DisGeNET auth failed (HTTP {r.status_code}): {r.text[:300]}") js = r.json() if "token" not in js: raise RuntimeError(f"DisGeNET auth response missing token keys: {list(js.keys())}") return str(js["token"])
-def _disgenet_get_gda_by_gene( gene: str, token: str, min_score: float = 0.0, source: str = "ALL", disease_class: Optional[List[str]] = None, timeout: float = 30.0, ) -> pd.DataFrame:
-"""
-GET https://www.disgenet.org/api/gda/gene/<gene>?min_score=...&source=...&disease_class=... :contentReference[oaicite:2]{index=2}
-"""
-if not REQUESTS_OK: raise ImportError("requests is required for DisGeNET API mode. pip install requests") gene = _normalize_gene_symbol(gene) base = f"https://www.disgenet.org/api/gda/gene/{gene}" params = {"min_score": str(float(min_score))} if source and str(source).upper() != "ALL": params["source"] = str(source).upper()
-# DisGeNET supports multiple disease_class parameters by repeating. # We'll pass it as repeated list if provided. headers = {"accept": "*/*", "Authorization": f"Bearer {token}"} r = requests.get(base, headers=headers, params=params, timeout=timeout) if r.status_code != 200: # common: gene not found or rate-limited return pd.DataFrame() txt = r.text.strip() if not txt: return pd.DataFrame()
-try: js = r.json()
-except Exception: return pd.DataFrame() if isinstance(js, dict): js = [js] if not isinstance(js, list): return pd.DataFrame() df = pd.DataFrame(js) if df.empty: return df # Normalize common column names from API output # Seen in practice: diseaseid, disease_name, score, gene_symbol, geneid... ren = {} for c in df.columns: cl = c.lower() if cl in {"diseaseid", "disease_id"}: ren[c] = "diseaseId"
-elif cl in {"disease_name", "diseasename"}: ren[c] = "diseaseName"
-elif cl in {"gene_symbol", "genesymbol", "gene"}: ren[c] = "geneSymbol"
-elif cl in {"score", "gda_score"}: ren[c] = "score" df = df.rename(columns=ren) if "geneSymbol" not in df.columns: df["geneSymbol"] = gene # coerce score if present if "score" in df.columns: df["score"] = pd.to_numeric(df["score"], errors="coerce") return df
-def _match_disease_rows( df: pd.DataFrame, disease_ids: Optional[List[str]] = None, disease_name: Optional[str] = None, disease_id_col: Optional[str] = None, disease_name_col: Optional[str] = None, ) -> pd.DataFrame:
-"""
-Filter rows that match: - exact diseaseId/UMLS CUI (preferred) - OR substring match on diseaseName
-"""
-if df is None or df.empty: return df out = df.copy() if disease_id_col is None: # try common names for c in ["diseaseId", "disease_id", "diseaseid", "UMLS", "CUI"]: if c in out.columns: disease_id_col = c break if disease_name_col is None: for c in ["diseaseName", "disease_name", "disease", "name"]: if c in out.columns: disease_name_col = c break mask = pd.Series(False, index=out.index) if disease_ids: ids = set(str(x).strip() for x in disease_ids if str(x).strip()) if disease_id_col and disease_id_col in out.columns: mask = mask | out[disease_id_col].astype(str).str.strip().isin(ids) if disease_name and str(disease_name).strip(): key = str(disease_name).strip().lower() if disease_name_col and disease_name_col in out.columns: mask = mask | out[disease_name_col].astype(str).str.lower().str.contains(key, na=False) return out.loc[mask].copy()
-def _compute_gene_relevance_from_disgenet( merged_df: pd.DataFrame, *, gene_col: str, latent_col: str, sample_col: Optional[str], out_dir: str, mode: str, disgenet_tsv: Optional[str], disgenet_token: Optional[str], disgenet_email: Optional[str], disgenet_password: Optional[str], disease_ids: Optional[List[str]], disease_name: Optional[str], api_min_score: float, api_source: str, group_by_sample: bool, genes_per_group: int, figure_dpi: int, heatmap_top_n: int, heatmap_truncate_y: int, lv_order: str, gene_relevance_thresh: float, ) -> Dict[str, str]:
-"""
-Main gene relevance block. Produces: gene_relevance_long.csv gene_relevance_summary_per_gene_group.csv gene_relevance_matrix.gene_x_group.csv fig_gene_relevance_heatmap.png fig_gene_sig_counts_per_LV.png
-"""
-os.makedirs(out_dir, exist_ok=True) df = merged_df.copy() if gene_col not in df.columns or latent_col not in df.columns: raise ValueError(f"Gene relevance: missing required columns {gene_col}, {latent_col}")
-# grouping if group_by_sample and sample_col and sample_col in df.columns and df[sample_col].nunique() > 1: df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
-else: df["_group"] = df[latent_col].astype(str) groups = sorted(df["_group"].unique(), key=_num_key_from_group) if not groups: _write_empty_log(out_dir, ["No groups found for gene relevance."]) return {} # pick top genes per group (presence-only; or you can later swap to SHAP-weighted)
-def top_genes(sub: pd.DataFrame, k: int) -> List[str]: gs = sub[gene_col].astype(str).dropna().map(_normalize_gene_symbol) gs = pd.unique(gs) return list(gs)[:max(0, int(k))] if k else list(gs) query_plan = {g: top_genes(df[df["_group"] == g], genes_per_group) for g in groups} pd.DataFrame([(g, len(v), _hash_list(v[:50])) for g, v in query_plan.items()], columns=["Group", "NumGenes", "Top50Hash"]).to_csv( os.path.join(out_dir, "debug_gene_list_fingerprints.csv"), index=False )
-# --------------------------------------------------------------------- # Mode A: API
-# --------------------------------------------------------------------- long_rows = [] if mode.lower() == "api": if not REQUESTS_OK: raise ImportError("requests is required for DisGeNET API mode. pip install requests") token = disgenet_token or os.environ.get("DISGENET_TOKEN", "").strip() if not token: email = disgenet_email or os.environ.get("DISGENET_EMAIL", "").strip() pwd = disgenet_password or os.environ.get("DISGENET_PASSWORD", "").strip() if not (email and pwd): raise RuntimeError( "DisGeNET API mode needs either:\n" " (a) DISGENET_TOKEN in env, OR\n" " (b) DISGENET_EMAIL and DISGENET_PASSWORD (env or CLI)\n" "so we can fetch a token from https://www.disgenet.org/api/auth/." ) token = _disgenet_auth_token(email=email, password=pwd)
-# cache token to output (for debugging), but not credentials with open(os.path.join(out_dir, "disgenet_token_obtained.txt"), "w") as f: f.write(token[:6] + "..." + token[-6:] + "\n")
-# query unique genes once uniq_genes = sorted(set(g for genes in query_plan.values() for g in genes)) print(f"[INFO] DisGeNET API: querying {len(uniq_genes)} unique genes (min_score={api_min_score}, source={api_source})") gene2df = {} for i, gene in enumerate(uniq_genes, 1): if i % 100 == 0: print(f"[INFO] DisGeNET API progress: {i}/{len(uniq_genes)} genes") gda = _disgenet_get_gda_by_gene( gene=gene, token=token, min_score=float(api_min_score), source=str(api_source), disease_class=None, ) gene2df[gene] = gda time.sleep(0.05)
-# gentle throttle # build long table by group, filter to disease match for grp in groups: genes = query_plan[grp] for gene in genes: gda = gene2df.get(gene, pd.DataFrame()) if gda is None or gda.empty: continue hit = _match_disease_rows( gda, disease_ids=disease_ids, disease_name=disease_name, disease_id_col="diseaseId" if "diseaseId" in gda.columns else None, disease_name_col="diseaseName" if "diseaseName" in gda.columns else None, ) if hit is None or hit.empty: continue hit = hit.copy() hit["Group"] = grp hit["Gene"] = gene long_rows.append(hit) long_df = pd.concat(long_rows, ignore_index=True) if long_rows else pd.DataFrame()
-# --------------------------------------------------------------------- # Mode B: TSV
-# ---------------------------------------------------------------------
-elif mode.lower() == "tsv": if not disgenet_tsv or not os.path.exists(disgenet_tsv): raise FileNotFoundError(f"--disgenet_tsv not found: {disgenet_tsv}")
-# try tab first; if seems 1 col, fallback to comma tdf = _safe_read_table(disgenet_tsv, sep="\t") if tdf.shape[1] <= 1: tdf = _safe_read_table(disgenet_tsv, sep=",") schema = _detect_disgenet_schema(tdf) with open(os.path.join(out_dir, "disgenet_tsv_schema_detected.json"), "w") as f: json.dump(schema, f, indent=2) gene_c = schema["gene_col"] did_c = schema["disease_id_col"] dnm_c = schema["disease_name_col"] sc_c = schema["score_col"] if gene_c is None: raise RuntimeError(f"Could not detect gene column in DisGeNET TSV: {list(tdf.columns)[:30]}") if (did_c is None) and (dnm_c is None): raise RuntimeError("Could not detect diseaseId or diseaseName column in DisGeNET TSV.")
-# normalize tdf["_gene"] = tdf[gene_c].astype(str).map(_normalize_gene_symbol) if did_c and did_c in tdf.columns: tdf["_diseaseId"] = tdf[did_c].astype(str).str.strip() if dnm_c and dnm_c in tdf.columns: tdf["_diseaseName"] = tdf[dnm_c].astype(str).str.strip() if sc_c and sc_c in tdf.columns: tdf["_score"] = pd.to_numeric(tdf[sc_c], errors="coerce")
-else: tdf["_score"] = np.nan # filter genes to those appearing in our groups uniq_genes = set(g for genes in query_plan.values() for g in genes) tdf = tdf[tdf["_gene"].isin(uniq_genes)].copy()
-# disease filter mask = pd.Series(False, index=tdf.index) if disease_ids and "_diseaseId" in tdf.columns: ids = set(str(x).strip() for x in disease_ids if str(x).strip()) mask = mask | tdf["_diseaseId"].astype(str).isin(ids) if disease_name and "_diseaseName" in tdf.columns: key = str(disease_name).strip().lower() mask = mask | tdf["_diseaseName"].astype(str).str.lower().str.contains(key, na=False) tdf = tdf.loc[mask].copy()
-# attach group membership by mapping gene∈group gene2groups = {} for grp in groups: for gene in query_plan[grp]: gene2groups.setdefault(gene, set()).add(grp)
-# explode group membership rows = [] for _, r in tdf.iterrows(): gene = r["_gene"] for grp in gene2groups.get(gene, []): rr = { "Gene": gene, "Group": grp, "diseaseId": r.get("_diseaseId", np.nan), "diseaseName": r.get("_diseaseName", np.nan), "score": r.get("_score", np.nan), } rows.append(rr) long_df = pd.DataFrame(rows)
-else: raise ValueError("--disgenet_mode must be one of: api, tsv") long_csv = os.path.join(out_dir, "gene_relevance_long.csv") if long_df is None or long_df.empty: _write_empty_log(out_dir, ["No DisGeNET gene-disease matches found for the requested disease filter."]) pd.DataFrame().to_csv(long_csv, index=False) return {} # Harmonize expected columns if "score" not in long_df.columns: # sometimes API may call it differently; try detect for c in long_df.columns: if c.lower() in {"score", "gda_score"}: long_df = long_df.rename(columns={c: "score"}) break if "diseaseId" not in long_df.columns: for c in long_df.columns: if c.lower() in {"diseaseid", "disease_id"}: long_df = long_df.rename(columns={c: "diseaseId"}) break if "diseaseName" not in long_df.columns: for c in long_df.columns: if c.lower() in {"diseasename", "disease_name"}: long_df = long_df.rename(columns={c: "diseaseName"}) break if "Gene" not in long_df.columns: if "geneSymbol" in long_df.columns: long_df["Gene"] = long_df["geneSymbol"].astype(str).map(_normalize_gene_symbol) long_df["score"] = pd.to_numeric(long_df.get("score", np.nan), errors="coerce") long_df.to_csv(long_csv, index=False)
-# summary per gene-group: take max score across matched diseases (you can change to mean/top-k) summ = ( long_df.groupby(["Gene", "Group"], as_index=False)["score"] .max() .rename(columns={"score": "DisGeNET_score_max"}) ) summ_csv = os.path.join(out_dir, "gene_relevance_summary_per_gene_group.csv") summ.to_csv(summ_csv, index=False)
-# gene x group matrix mat = summ.pivot_table(index="Gene", columns="Group", values="DisGeNET_score_max", aggfunc="max", fill_value=0.0)
-# display LV mat_disp = mat.copy() mat_disp.columns = [_display_as_lv(c) for c in mat_disp.columns] mat_disp = mat_disp.reindex(columns=_lv_order_columns(mat_disp, lv_order=lv_order, overlay_sig_thresh=float(gene_relevance_thresh))) mat_csv = os.path.join(out_dir, "gene_relevance_matrix.gene_x_group.csv") mat_disp.to_csv(mat_csv)
-# plot full heatmap (color = DisGeNET score) _plot_matrix( mat=mat_disp, title=f"Gene-level disease relevance (DisGeNET score) — order={lv_order}", out_png=os.path.join(out_dir, "fig_gene_relevance_heatmap.png"), dpi=figure_dpi, vmin=0.0, vmax=float(np.nanmax(mat_disp.values)) if np.isfinite(np.nanmax(mat_disp.values)) else None, overlay_sig_thresh=float(gene_relevance_thresh) if gene_relevance_thresh is not None else None, truncate_y_at=heatmap_truncate_y, cbar_label="DisGeNET score", )
-# sig counts per LV at threshold sig_counts = (mat_disp >= float(gene_relevance_thresh)).sum(axis=0) sig_counts.to_csv(os.path.join(out_dir, "gene_sig_counts_per_LV.csv")) _plot_sig_count_bar( sig_counts, out_png=os.path.join(out_dir, "fig_gene_sig_counts_per_LV.png"), title=f"Relevant genes per LV (score ≥ {gene_relevance_thresh}) — order={lv_order}", dpi=figure_dpi, ylabel=f"# genes (score ≥ {gene_relevance_thresh})", )
-# optional top-N genes (by max across groups) for readability if int(heatmap_top_n) > 0: gene_rank = mat_disp.max(axis=1).sort_values(ascending=False) keep = gene_rank.head(int(heatmap_top_n)).index mat_top = mat_disp.loc[keep] _plot_matrix( mat=mat_top, title=f"Gene-level relevance (Top {heatmap_top_n} genes by max score) — order={lv_order}", out_png=os.path.join(out_dir, f"fig_gene_relevance_heatmap_top{heatmap_top_n}.png"), dpi=figure_dpi, vmin=0.0, vmax=float(np.nanmax(mat_top.values)) if np.isfinite(np.nanmax(mat_top.values)) else None, overlay_sig_thresh=float(gene_relevance_thresh) if gene_relevance_thresh is not None else None, truncate_y_at=heatmap_truncate_y, cbar_label="DisGeNET score", ) mat_top.to_csv(os.path.join(out_dir, f"gene_relevance_matrix.gene_x_group.top{heatmap_top_n}.csv")) return { "gene_long_csv": long_csv, "gene_summary_csv": summ_csv, "gene_matrix_csv": mat_csv, "gene_heatmap_png": os.path.join(out_dir, "fig_gene_relevance_heatmap.png"), "gene_sig_counts_png": os.path.join(out_dir, "fig_gene_sig_counts_per_LV.png"), }
-# ============================================================================= # Main pipeline runner (UPDATED: calls gene analysis)
+    """
+    Auth flow: POST https://www.disgenet.org/api/auth/ {email,password} -> {token}
+    (Matches known DisGeNET client implementations.) :contentReference[oaicite:1]{index=1}
+    """
+    if not REQUESTS_OK:
+        raise ImportError("requests is required for DisGeNET API mode. pip install requests")
+
+    url = "https://www.disgenet.org/api/auth/"
+    r = requests.post(url, headers={"accept": "*/*"}, data={"email": email, "password": password}, timeout=timeout)
+    if r.status_code != 200:
+        raise RuntimeError(f"DisGeNET auth failed (HTTP {r.status_code}): {r.text[:300]}")
+    js = r.json()
+    if "token" not in js:
+        raise RuntimeError(f"DisGeNET auth response missing token keys: {list(js.keys())}")
+    return str(js["token"])
+
+
+def _disgenet_get_gda_by_gene(
+    gene: str,
+    token: str,
+    min_score: float = 0.0,
+    source: str = "ALL",
+    disease_class: Optional[List[str]] = None,
+    timeout: float = 30.0,
+) -> pd.DataFrame:
+    """
+    GET https://www.disgenet.org/api/gda/gene/<gene>?min_score=...&source=...&disease_class=...
+    :contentReference[oaicite:2]{index=2}
+    """
+    if not REQUESTS_OK:
+        raise ImportError("requests is required for DisGeNET API mode. pip install requests")
+
+    gene = _normalize_gene_symbol(gene)
+    base = f"https://www.disgenet.org/api/gda/gene/{gene}"
+
+    params = {"min_score": str(float(min_score))}
+    if source and str(source).upper() != "ALL":
+        params["source"] = str(source).upper()
+
+    # DisGeNET supports multiple disease_class parameters by repeating.
+    # We'll pass it as repeated list if provided.
+    headers = {"accept": "*/*", "Authorization": f"Bearer {token}"}
+
+    r = requests.get(base, headers=headers, params=params, timeout=timeout)
+    if r.status_code != 200:
+        # common: gene not found or rate-limited
+        return pd.DataFrame()
+
+    txt = r.text.strip()
+    if not txt:
+        return pd.DataFrame()
+
+    try:
+        js = r.json()
+    except Exception:
+        return pd.DataFrame()
+
+    if isinstance(js, dict):
+        js = [js]
+    if not isinstance(js, list):
+        return pd.DataFrame()
+
+    df = pd.DataFrame(js)
+    if df.empty:
+        return df
+
+    # Normalize common column names from API output
+    # Seen in practice: diseaseid, disease_name, score, gene_symbol, geneid...
+    ren = {}
+    for c in df.columns:
+        cl = c.lower()
+        if cl in {"diseaseid", "disease_id"}:
+            ren[c] = "diseaseId"
+        elif cl in {"disease_name", "diseasename"}:
+            ren[c] = "diseaseName"
+        elif cl in {"gene_symbol", "genesymbol", "gene"}:
+            ren[c] = "geneSymbol"
+        elif cl in {"score", "gda_score"}:
+            ren[c] = "score"
+    df = df.rename(columns=ren)
+
+    if "geneSymbol" not in df.columns:
+        df["geneSymbol"] = gene
+
+    # coerce score if present
+    if "score" in df.columns:
+        df["score"] = pd.to_numeric(df["score"], errors="coerce")
+
+    return df
+
+
+def _match_disease_rows(
+    df: pd.DataFrame,
+    disease_ids: Optional[List[str]] = None,
+    disease_name: Optional[str] = None,
+    disease_id_col: Optional[str] = None,
+    disease_name_col: Optional[str] = None,
+) -> pd.DataFrame:
+    """
+    Filter rows that match:
+      - exact diseaseId/UMLS CUI (preferred)
+      - OR substring match on diseaseName
+    """
+    if df is None or df.empty:
+        return df
+
+    out = df.copy()
+
+    if disease_id_col is None:
+        # try common names
+        for c in ["diseaseId", "disease_id", "diseaseid", "UMLS", "CUI"]:
+            if c in out.columns:
+                disease_id_col = c
+                break
+    if disease_name_col is None:
+        for c in ["diseaseName", "disease_name", "disease", "name"]:
+            if c in out.columns:
+                disease_name_col = c
+                break
+
+    mask = pd.Series(False, index=out.index)
+
+    if disease_ids:
+        ids = set(str(x).strip() for x in disease_ids if str(x).strip())
+        if disease_id_col and disease_id_col in out.columns:
+            mask = mask | out[disease_id_col].astype(str).str.strip().isin(ids)
+
+    if disease_name and str(disease_name).strip():
+        key = str(disease_name).strip().lower()
+        if disease_name_col and disease_name_col in out.columns:
+            mask = mask | out[disease_name_col].astype(str).str.lower().str.contains(key, na=False)
+
+    return out.loc[mask].copy()
+
+
+def _compute_gene_relevance_from_disgenet(
+    merged_df: pd.DataFrame,
+    *,
+    gene_col: str,
+    latent_col: str,
+    sample_col: Optional[str],
+    out_dir: str,
+    mode: str,
+    disgenet_tsv: Optional[str],
+    disgenet_token: Optional[str],
+    disgenet_email: Optional[str],
+    disgenet_password: Optional[str],
+    disease_ids: Optional[List[str]],
+    disease_name: Optional[str],
+    api_min_score: float,
+    api_source: str,
+    group_by_sample: bool,
+    genes_per_group: int,
+    figure_dpi: int,
+    heatmap_top_n: int,
+    heatmap_truncate_y: int,
+    lv_order: str,
+    gene_relevance_thresh: float,
+) -> Dict[str, str]:
+    """
+    Main gene relevance block.
+
+    Produces:
+      gene_relevance_long.csv
+      gene_relevance_summary_per_gene_group.csv
+      gene_relevance_matrix.gene_x_group.csv
+      fig_gene_relevance_heatmap.png
+      fig_gene_sig_counts_per_LV.png
+    """
+    os.makedirs(out_dir, exist_ok=True)
+
+    df = merged_df.copy()
+    if gene_col not in df.columns or latent_col not in df.columns:
+        raise ValueError(f"Gene relevance: missing required columns {gene_col}, {latent_col}")
+
+    # grouping
+    if group_by_sample and sample_col and sample_col in df.columns and df[sample_col].nunique() > 1:
+        df["_group"] = df[latent_col].astype(str) + ":" + df[sample_col].astype(str)
+    else:
+        df["_group"] = df[latent_col].astype(str)
+
+    groups = sorted(df["_group"].unique(), key=_num_key_from_group)
+    if not groups:
+        _write_empty_log(out_dir, ["No groups found for gene relevance."])
+        return {}
+
+    # pick top genes per group (presence-only; or you can later swap to SHAP-weighted)
+    def top_genes(sub: pd.DataFrame, k: int) -> List[str]:
+        gs = sub[gene_col].astype(str).dropna().map(_normalize_gene_symbol)
+        gs = pd.unique(gs)
+        return list(gs)[:max(0, int(k))] if k else list(gs)
+
+    query_plan = {g: top_genes(df[df["_group"] == g], genes_per_group) for g in groups}
+    pd.DataFrame([(g, len(v), _hash_list(v[:50])) for g, v in query_plan.items()],
+                 columns=["Group", "NumGenes", "Top50Hash"]).to_csv(
+        os.path.join(out_dir, "debug_gene_list_fingerprints.csv"), index=False
+    )
+
+    # ---------------------------------------------------------------------
+    # Mode A: API
+    # ---------------------------------------------------------------------
+    long_rows = []
+    if mode.lower() == "api":
+        if not REQUESTS_OK:
+            raise ImportError("requests is required for DisGeNET API mode. pip install requests")
+
+        token = disgenet_token or os.environ.get("DISGENET_TOKEN", "").strip()
+
+        if not token:
+            email = disgenet_email or os.environ.get("DISGENET_EMAIL", "").strip()
+            pwd = disgenet_password or os.environ.get("DISGENET_PASSWORD", "").strip()
+            if not (email and pwd):
+                raise RuntimeError(
+                    "DisGeNET API mode needs either:\n"
+                    "  (a) DISGENET_TOKEN in env, OR\n"
+                    "  (b) DISGENET_EMAIL and DISGENET_PASSWORD (env or CLI)\n"
+                    "so we can fetch a token from https://www.disgenet.org/api/auth/."
+                )
+            token = _disgenet_auth_token(email=email, password=pwd)
+
+        # cache token to output (for debugging), but not credentials
+        with open(os.path.join(out_dir, "disgenet_token_obtained.txt"), "w") as f:
+            f.write(token[:6] + "..." + token[-6:] + "\n")
+
+        # query unique genes once
+        uniq_genes = sorted(set(g for genes in query_plan.values() for g in genes))
+        print(f"[INFO] DisGeNET API: querying {len(uniq_genes)} unique genes (min_score={api_min_score}, source={api_source})")
+
+        gene2df = {}
+        for i, gene in enumerate(uniq_genes, 1):
+            if i % 100 == 0:
+                print(f"[INFO] DisGeNET API progress: {i}/{len(uniq_genes)} genes")
+            gda = _disgenet_get_gda_by_gene(
+                gene=gene,
+                token=token,
+                min_score=float(api_min_score),
+                source=str(api_source),
+                disease_class=None,
+            )
+            gene2df[gene] = gda
+            time.sleep(0.05)  # gentle throttle
+
+        # build long table by group, filter to disease match
+        for grp in groups:
+            genes = query_plan[grp]
+            for gene in genes:
+                gda = gene2df.get(gene, pd.DataFrame())
+                if gda is None or gda.empty:
+                    continue
+                hit = _match_disease_rows(
+                    gda,
+                    disease_ids=disease_ids,
+                    disease_name=disease_name,
+                    disease_id_col="diseaseId" if "diseaseId" in gda.columns else None,
+                    disease_name_col="diseaseName" if "diseaseName" in gda.columns else None,
+                )
+                if hit is None or hit.empty:
+                    continue
+                hit = hit.copy()
+                hit["Group"] = grp
+                hit["Gene"] = gene
+                long_rows.append(hit)
+
+        long_df = pd.concat(long_rows, ignore_index=True) if long_rows else pd.DataFrame()
+
+    # ---------------------------------------------------------------------
+    # Mode B: TSV
+    # ---------------------------------------------------------------------
+    elif mode.lower() == "tsv":
+        if not disgenet_tsv or not os.path.exists(disgenet_tsv):
+            raise FileNotFoundError(f"--disgenet_tsv not found: {disgenet_tsv}")
+
+        # try tab first; if seems 1 col, fallback to comma
+        tdf = _safe_read_table(disgenet_tsv, sep="\t")
+        if tdf.shape[1] <= 1:
+            tdf = _safe_read_table(disgenet_tsv, sep=",")
+
+        schema = _detect_disgenet_schema(tdf)
+        with open(os.path.join(out_dir, "disgenet_tsv_schema_detected.json"), "w") as f:
+            json.dump(schema, f, indent=2)
+
+        gene_c = schema["gene_col"]
+        did_c = schema["disease_id_col"]
+        dnm_c = schema["disease_name_col"]
+        sc_c  = schema["score_col"]
+
+        if gene_c is None:
+            raise RuntimeError(f"Could not detect gene column in DisGeNET TSV: {list(tdf.columns)[:30]}")
+        if (did_c is None) and (dnm_c is None):
+            raise RuntimeError("Could not detect diseaseId or diseaseName column in DisGeNET TSV.")
+
+        # normalize
+        tdf["_gene"] = tdf[gene_c].astype(str).map(_normalize_gene_symbol)
+        if did_c and did_c in tdf.columns:
+            tdf["_diseaseId"] = tdf[did_c].astype(str).str.strip()
+        if dnm_c and dnm_c in tdf.columns:
+            tdf["_diseaseName"] = tdf[dnm_c].astype(str).str.strip()
+
+        if sc_c and sc_c in tdf.columns:
+            tdf["_score"] = pd.to_numeric(tdf[sc_c], errors="coerce")
+        else:
+            tdf["_score"] = np.nan
+
+        # filter genes to those appearing in our groups
+        uniq_genes = set(g for genes in query_plan.values() for g in genes)
+        tdf = tdf[tdf["_gene"].isin(uniq_genes)].copy()
+
+        # disease filter
+        mask = pd.Series(False, index=tdf.index)
+        if disease_ids and "_diseaseId" in tdf.columns:
+            ids = set(str(x).strip() for x in disease_ids if str(x).strip())
+            mask = mask | tdf["_diseaseId"].astype(str).isin(ids)
+        if disease_name and "_diseaseName" in tdf.columns:
+            key = str(disease_name).strip().lower()
+            mask = mask | tdf["_diseaseName"].astype(str).str.lower().str.contains(key, na=False)
+        tdf = tdf.loc[mask].copy()
+
+        # attach group membership by mapping gene∈group
+        gene2groups = {}
+        for grp in groups:
+            for gene in query_plan[grp]:
+                gene2groups.setdefault(gene, set()).add(grp)
+
+        # explode group membership
+        rows = []
+        for _, r in tdf.iterrows():
+            gene = r["_gene"]
+            for grp in gene2groups.get(gene, []):
+                rr = {
+                    "Gene": gene,
+                    "Group": grp,
+                    "diseaseId": r.get("_diseaseId", np.nan),
+                    "diseaseName": r.get("_diseaseName", np.nan),
+                    "score": r.get("_score", np.nan),
+                }
+                rows.append(rr)
+
+        long_df = pd.DataFrame(rows)
+
+    else:
+        raise ValueError("--disgenet_mode must be one of: api, tsv")
+
+    long_csv = os.path.join(out_dir, "gene_relevance_long.csv")
+    if long_df is None or long_df.empty:
+        _write_empty_log(out_dir, ["No DisGeNET gene-disease matches found for the requested disease filter."])
+        pd.DataFrame().to_csv(long_csv, index=False)
+        return {}
+
+    # Harmonize expected columns
+    if "score" not in long_df.columns:
+        # sometimes API may call it differently; try detect
+        for c in long_df.columns:
+            if c.lower() in {"score", "gda_score"}:
+                long_df = long_df.rename(columns={c: "score"})
+                break
+    if "diseaseId" not in long_df.columns:
+        for c in long_df.columns:
+            if c.lower() in {"diseaseid", "disease_id"}:
+                long_df = long_df.rename(columns={c: "diseaseId"})
+                break
+    if "diseaseName" not in long_df.columns:
+        for c in long_df.columns:
+            if c.lower() in {"diseasename", "disease_name"}:
+                long_df = long_df.rename(columns={c: "diseaseName"})
+                break
+
+    if "Gene" not in long_df.columns:
+        if "geneSymbol" in long_df.columns:
+            long_df["Gene"] = long_df["geneSymbol"].astype(str).map(_normalize_gene_symbol)
+
+    long_df["score"] = pd.to_numeric(long_df.get("score", np.nan), errors="coerce")
+
+    long_df.to_csv(long_csv, index=False)
+
+    # summary per gene-group: take max score across matched diseases (you can change to mean/top-k)
+    summ = (
+        long_df.groupby(["Gene", "Group"], as_index=False)["score"]
+        .max()
+        .rename(columns={"score": "DisGeNET_score_max"})
+    )
+    summ_csv = os.path.join(out_dir, "gene_relevance_summary_per_gene_group.csv")
+    summ.to_csv(summ_csv, index=False)
+
+    # gene x group matrix
+    mat = summ.pivot_table(index="Gene", columns="Group", values="DisGeNET_score_max", aggfunc="max", fill_value=0.0)
+
+    # display LV
+    mat_disp = mat.copy()
+    mat_disp.columns = [_display_as_lv(c) for c in mat_disp.columns]
+    mat_disp = mat_disp.reindex(columns=_lv_order_columns(mat_disp, lv_order=lv_order, overlay_sig_thresh=float(gene_relevance_thresh)))
+
+    mat_csv = os.path.join(out_dir, "gene_relevance_matrix.gene_x_group.csv")
+    mat_disp.to_csv(mat_csv)
+
+    # plot full heatmap (color = DisGeNET score)
+    _plot_matrix(
+        mat=mat_disp,
+        title=f"Gene-level disease relevance (DisGeNET score) — order={lv_order}",
+        out_png=os.path.join(out_dir, "fig_gene_relevance_heatmap.png"),
+        dpi=figure_dpi,
+        vmin=0.0,
+        vmax=float(np.nanmax(mat_disp.values)) if np.isfinite(np.nanmax(mat_disp.values)) else None,
+        overlay_sig_thresh=float(gene_relevance_thresh) if gene_relevance_thresh is not None else None,
+        truncate_y_at=heatmap_truncate_y,
+        cbar_label="DisGeNET score",
+    )
+
+    # sig counts per LV at threshold
+    sig_counts = (mat_disp >= float(gene_relevance_thresh)).sum(axis=0)
+    sig_counts.to_csv(os.path.join(out_dir, "gene_sig_counts_per_LV.csv"))
+
+    _plot_sig_count_bar(
+        sig_counts,
+        out_png=os.path.join(out_dir, "fig_gene_sig_counts_per_LV.png"),
+        title=f"Relevant genes per LV (score ≥ {gene_relevance_thresh}) — order={lv_order}",
+        dpi=figure_dpi,
+        ylabel=f"# genes (score ≥ {gene_relevance_thresh})",
+    )
+
+    # optional top-N genes (by max across groups) for readability
+    if int(heatmap_top_n) > 0:
+        gene_rank = mat_disp.max(axis=1).sort_values(ascending=False)
+        keep = gene_rank.head(int(heatmap_top_n)).index
+        mat_top = mat_disp.loc[keep]
+
+        _plot_matrix(
+            mat=mat_top,
+            title=f"Gene-level relevance (Top {heatmap_top_n} genes by max score) — order={lv_order}",
+            out_png=os.path.join(out_dir, f"fig_gene_relevance_heatmap_top{heatmap_top_n}.png"),
+            dpi=figure_dpi,
+            vmin=0.0,
+            vmax=float(np.nanmax(mat_top.values)) if np.isfinite(np.nanmax(mat_top.values)) else None,
+            overlay_sig_thresh=float(gene_relevance_thresh) if gene_relevance_thresh is not None else None,
+            truncate_y_at=heatmap_truncate_y,
+            cbar_label="DisGeNET score",
+        )
+        mat_top.to_csv(os.path.join(out_dir, f"gene_relevance_matrix.gene_x_group.top{heatmap_top_n}.csv"))
+
+    return {
+        "gene_long_csv": long_csv,
+        "gene_summary_csv": summ_csv,
+        "gene_matrix_csv": mat_csv,
+        "gene_heatmap_png": os.path.join(out_dir, "fig_gene_relevance_heatmap.png"),
+        "gene_sig_counts_png": os.path.join(out_dir, "fig_gene_sig_counts_per_LV.png"),
+    }
+
+
 # =============================================================================
-def _run_one_analysis(args: argparse.Namespace, merged: pd.DataFrame, out_root: str, sample_col_for_enrich: Optional[str]): os.makedirs(out_root, exist_ok=True) _write_run_params(out_root, args) if args.make_protocol_figure: make_xai_protocol_figure(os.path.join(out_root, "fig_protocol.png")) merged_csv = os.path.join(out_root, "latent_gene_table.csv") merged.to_csv(merged_csv, index=False) print(f"[OK] Latent→Gene table: {merged_csv} (n={len(merged)})") outputs = {} # ---- PATHWAY ENRICHMENT enrich_out_dir = os.path.join(out_root, "enrichment") os.makedirs(enrich_out_dir, exist_ok=True) if args.mode.lower() == "enrichr": outputs.update(enrich_by_latent_enrichr( merged_df=merged, gene_sets=args.gene_sets, output_dir=enrich_out_dir, gene_col=args.gene_col_out, latent_col=args.latent_col, sample_col=sample_col_for_enrich, score_col=None, genes_per_lv=args.genes_per_lv, top_per_library=args.top_per_library, order_lvs_numeric=True, figure_dpi=args.dpi, overlay_sig_thresh=args.overlay_sig_thresh, vmax_raw=args.vmax_raw, enrichr_retries=args.enrichr_retries, enrichr_sleep_sec=args.enrichr_sleep_sec, heatmap_top_n=args.heatmap_top_n, heatmap_top_method=args.heatmap_top_method, heatmap_topk_mean=args.heatmap_topk_mean, heatmap_truncate_y=args.heatmap_truncate_y, lv_order=args.lv_order, )) if args.make_lv_bubbles: groups = sorted( [re.sub(r"^enrichr_top_|\.csv$", "", os.path.basename(p)) for p in glob.glob(os.path.join(enrich_out_dir, "enrichr_top_*.csv"))] ) groups = sorted(groups, key=_num_key_from_group) for g in groups: plot_single_lv_bubble_from_enrichr( output_dir=enrich_out_dir, group_name=g, max_terms=args.lv_bubble_max_terms, min_k=args.lv_bubble_min_k, dpi=args.dpi, ) if args.make_lv_bubble_grid: plot_all_lvs_bubble_grid_from_enrichr( output_dir=enrich_out_dir, max_terms=args.lv_grid_max_terms, min_k=args.lv_bubble_min_k, ncols=args.lv_grid_ncols, dpi=args.dpi, ) if args.aggregate_within_sample: aggregate_enrichr_within_sample(enrich_out_dir, fdr_thr=args.aggregate_fdr_thr)
-elif args.mode.lower() == "gmt": if not args.gmt_files: raise ValueError("mode=gmt requires --gmt_files <file1.gmt> <file2.gmt> ...") outputs.update(enrich_by_latent_gmt( merged_df=merged, gmt_files=args.gmt_files, output_dir=enrich_out_dir, gene_col=args.gene_col_out, latent_col=args.latent_col, sample_col=sample_col_for_enrich, top_per_latent=args.top_per_library, figure_dpi=args.dpi, overlay_sig_thresh=args.overlay_sig_thresh, vmax_raw=args.vmax_raw, heatmap_top_n=args.heatmap_top_n, heatmap_top_method=args.heatmap_top_method, heatmap_topk_mean=args.heatmap_topk_mean, heatmap_truncate_y=args.heatmap_truncate_y, lv_order=args.lv_order, ))
-else: raise ValueError("mode must be one of: enrichr, gmt")
-# ---- ✅ GENE RELEVANCE (DisGeNET) if args.run_gene_analysis: gene_out_dir = os.path.join(out_root, "gene_relevance") outputs.update(_compute_gene_relevance_from_disgenet( merged_df=merged, gene_col=args.gene_col_out, latent_col=args.latent_col, sample_col=sample_col_for_enrich, out_dir=gene_out_dir, mode=args.disgenet_mode, disgenet_tsv=args.disgenet_tsv, disgenet_token=args.disgenet_token, disgenet_email=args.disgenet_email, disgenet_password=args.disgenet_password, disease_ids=args.disgenet_disease_ids, disease_name=args.disgenet_disease_name, api_min_score=args.disgenet_api_min_score, api_source=args.disgenet_api_source, group_by_sample=(sample_col_for_enrich is not None), genes_per_group=args.disgenet_genes_per_group, figure_dpi=args.dpi, heatmap_top_n=args.disgenet_heatmap_top_n, heatmap_truncate_y=args.heatmap_truncate_y, lv_order=args.lv_order, gene_relevance_thresh=args.disgenet_relevance_thresh, )) with open(os.path.join(out_root, "outputs_manifest.json"), "w") as f: json.dump(outputs, f, indent=2, sort_keys=True) print(f"[DONE] Output root: {out_root}")
-def run_pipeline(args: argparse.Namespace): tag = f"LD{args.LD}_NS{args.NS}_L{args.L}_K{args.K}" goto_aggregated_only = False if args.run_aggregated_samples and not args.sample_id: pooled_shap = os.path.join( args.base_dir, "outputs", f"{args.disease}_LD{args.LD}_NS{args.NS}_L{args.L}_K{args.K}_top_snps_per_latent.csv", ) if not os.path.exists(pooled_shap): print(f"[INFO] Non-sample (pooled) SHAP not found: {pooled_shap}") print("[INFO] Proceeding directly to ALL_SAMPLES aggregation (per-sample SHAPs).") goto_aggregated_only = True # (1) Single run if not goto_aggregated_only: if args.sample_id: out_root = os.path.join(args.output_dir, args.disease, tag, args.sample_id) merged = build_latent_gene_table_from_shap_sample( base_dir=args.base_dir, disease=args.disease, LD=args.LD, NS=args.NS, L=args.L, K=args.K, sample_id=args.sample_id, s2g_path=args.s2g_path, bim_file=args.bim_file, latent_col=args.latent_col, gene_col_out=args.gene_col_out, ) merged["Sample"] = args.sample_id _run_one_analysis(args, merged, out_root, sample_col_for_enrich="Sample")
-else: out_root = os.path.join(args.output_dir, args.disease, tag) merged = build_latent_gene_table_from_shap( base_dir=args.base_dir, disease=args.disease, LD=args.LD, NS=args.NS, L=args.L, K=args.K, s2g_path=args.s2g_path, bim_file=args.bim_file, latent_col=args.latent_col, gene_col_out=args.gene_col_out, ) _run_one_analysis(args, merged, out_root, sample_col_for_enrich=None)
-# (2) ALL_SAMPLES aggregation if not args.run_aggregated_samples: return out_root_all = os.path.join(args.output_dir, args.disease, tag, "ALL_SAMPLES") os.makedirs(out_root_all, exist_ok=True) merged_all = build_latent_gene_table_from_shap_all_samples( base_dir=args.base_dir, disease=args.disease, LD=args.LD, NS=args.NS, L=args.L, K=args.K, s2g_path=args.s2g_path, bim_file=args.bim_file, latent_col=args.latent_col, gene_col_out=args.gene_col_out, ) long_csv = os.path.join(out_root_all, "latent_gene_table.ALL_SAMPLES.long.csv") merged_all.to_csv(long_csv, index=False) print(f"[OK] ALL-SAMPLES long table: {long_csv} (n={len(merged_all)})") wide_csv = os.path.join(out_root_all, "latent_gene_table.ALL_SAMPLES.wide_gene_x_sampleLV.csv") write_gene_wide_matrix( df_long=merged_all, out_csv=wide_csv, latent_col=args.latent_col, gene_col=args.gene_col_out, ) print(f"[OK] ALL-SAMPLES wide matrix: {wide_csv}")
-# (2A) POOLED_BY_LV pooled_lv_root = os.path.join(out_root_all, "POOLED_BY_LV") pooled_lv_df = merged_all[[args.latent_col, args.gene_col_out]].copy() _run_one_analysis(args, pooled_lv_df, pooled_lv_root, sample_col_for_enrich=None)
-# (2B) POOLED_BY_SAMPLELV pooled_samplelv_root = os.path.join(out_root_all, "POOLED_BY_SAMPLELV") _run_one_analysis(args, merged_all.copy(), pooled_samplelv_root, sample_col_for_enrich="Sample")
-# ============================================================================= # CLI (UPDATED: adds DisGeNET args)
+# Main pipeline runner (UPDATED: calls gene analysis)
 # =============================================================================
-def parse_args() -> argparse.Namespace: p = argparse.ArgumentParser( description="SHAP→SNP→Gene→Pathway pipeline with LV-level pathway plots (Enrichr/GMT) + DisGeNET gene relevance." ) p.add_argument("--base_dir", type=str, required=True, help="Project base directory (expects base_dir/outputs/...).") p.add_argument("--output_dir", type=str, required=True, help="Where to write results.") p.add_argument("--disease", type=str, required=True) p.add_argument("--LD", type=int, required=True) p.add_argument("--NS", type=int, required=True) p.add_argument("--L", type=int, required=True) p.add_argument("--K", type=int, required=True) p.add_argument("--sample_id", type=str, default=None, help="Optional: per-sample run (e.g., S1).") p.add_argument("--s2g_path", type=str, required=True, help="SNP-to-Gene mapping file (TSV).") p.add_argument( "--bim_file", type=str, default=None, help="PLINK .bim file to map chr_pos SNP_IDs (chr1_123_A_T_b38) -> rsIDs for cS2G merging.", ) p.add_argument("--latent_col", type=str, default="Latent_Dim") p.add_argument("--gene_col_out", type=str, default="GENE") p.add_argument("--mode", type=str, default="enrichr", choices=["enrichr", "gmt"]) p.add_argument("--gene_sets", nargs="+", default=["Reactome_2022", "KEGG_2021_Human", "GO_Biological_Process_2023"]) p.add_argument("--gmt_files", nargs="+", default=None) p.add_argument("--genes_per_lv", type=int, default=200) p.add_argument("--top_per_library", type=int, default=10) p.add_argument("--enrichr_retries", type=int, default=3) p.add_argument("--enrichr_sleep_sec", type=float, default=1.0) p.add_argument("--dpi", type=int, default=300) p.add_argument("--overlay_sig_thresh", type=float, default=1.30103, help="-log10(0.05) by default.") p.add_argument("--vmax_raw", type=float, default=6.0) p.add_argument("--heatmap_top_n", type=int, default=10, help="Top-N pathways to display in readable heatmaps. 0 disables.") p.add_argument("--heatmap_top_method", type=str, default="sig_count", choices=["sig_count", "max", "mean_topk"]) p.add_argument("--heatmap_topk_mean", type=int, default=3, help="For mean_topk scoring.") p.add_argument("--heatmap_truncate_y", type=int, default=90, help="Truncate labels on y-axis (0 disables).") p.add_argument( "--lv_order", type=str, default="sig_count", choices=["sig_count", "numeric", "sum", "max", "cluster"], help="How to order LV columns in heatmaps." ) p.add_argument("--make_lv_bubbles", action="store_true", help="Make one LV-level bubble plot per LV.") p.add_argument("--make_lv_bubble_grid", action="store_true", help="Make a multi-LV bubble grid PDF.") p.add_argument("--lv_bubble_max_terms", type=int, default=20) p.add_argument("--lv_bubble_min_k", type=int, default=1) p.add_argument("--lv_grid_max_terms", type=int, default=15) p.add_argument("--lv_grid_ncols", type=int, default=4) p.add_argument("--make_protocol_figure", action="store_true") p.add_argument("--aggregate_within_sample", action="store_true") p.add_argument("--aggregate_fdr_thr", type=float, default=0.05) p.add_argument( "--run_aggregated_samples", action="store_true", help="Also run ALL-SAMPLES analysis (reads S1..SK SHAP files) and outputs pooled+by-sample results." )
-# ----------------------------- # ✅ NEW: DisGeNET gene analysis # ----------------------------- p.add_argument("--run_gene_analysis", action="store_true", help="Run gene-level disease relevance scoring using DisGeNET.") p.add_argument("--disgenet_mode", type=str, default="api", choices=["api", "tsv"], help="Gene relevance mode: api (recommended) or tsv (local dump).") p.add_argument("--disgenet_tsv", type=str, default=None, help="DisGeNET TSV file path (required if disgenet_mode=tsv).")
-# Credentials: p.add_argument("--disgenet_token", type=str, default=None, help="Optional bearer token (else use env DISGENET_TOKEN).") p.add_argument("--disgenet_email", type=str, default=None, help="Optional email (else env DISGENET_EMAIL).") p.add_argument("--disgenet_password", type=str, default=None, help="Optional password (else env DISGENET_PASSWORD).")
-# Disease matching: p.add_argument("--disgenet_disease_ids", nargs="*", default=None, help="Exact DisGeNET diseaseId / UMLS CUI list (recommended), e.g., C0002395 ...") p.add_argument("--disgenet_disease_name", type=str, default=None, help="Fallback: substring match on disease name (case-insensitive), e.g., 'Alzheimer'.")
-# API query controls: p.add_argument("--disgenet_api_min_score", type=float, default=0.0, help="API: min_score filter (0..1).") p.add_argument("--disgenet_api_source", type=str, default="ALL", help="API: source filter (ALL, CURATED, LITERATURE, ANIMAL_MODELS, etc.).")
-# Plot/threshold controls: p.add_argument("--disgenet_genes_per_group", type=int, default=200, help="How many genes per LV (or LV:Sample) to score against DisGeNET.") p.add_argument("--disgenet_relevance_thresh", type=float, default=0.1, help="Score threshold to call a gene 'relevant' (used for overlays + counts).") p.add_argument("--disgenet_heatmap_top_n", type=int, default=50, help="Also export a Top-N genes heatmap (0 disables).") return p.parse_args()
-if __name__ == "__main__": args = parse_args() run_pipeline(args)
+
+def _run_one_analysis(args: argparse.Namespace, merged: pd.DataFrame, out_root: str, sample_col_for_enrich: Optional[str]):
+    os.makedirs(out_root, exist_ok=True)
+    _write_run_params(out_root, args)
+
+    if args.make_protocol_figure:
+        make_xai_protocol_figure(os.path.join(out_root, "fig_protocol.png"))
+
+    merged_csv = os.path.join(out_root, "latent_gene_table.csv")
+    merged.to_csv(merged_csv, index=False)
+    print(f"[OK] Latent→Gene table: {merged_csv}  (n={len(merged)})")
+
+    outputs = {}
+
+    # ---- PATHWAY ENRICHMENT
+    enrich_out_dir = os.path.join(out_root, "enrichment")
+    os.makedirs(enrich_out_dir, exist_ok=True)
+
+    if args.mode.lower() == "enrichr":
+        outputs.update(enrich_by_latent_enrichr(
+            merged_df=merged,
+            gene_sets=args.gene_sets,
+            output_dir=enrich_out_dir,
+            gene_col=args.gene_col_out,
+            latent_col=args.latent_col,
+            sample_col=sample_col_for_enrich,
+            score_col=None,
+            genes_per_lv=args.genes_per_lv,
+            top_per_library=args.top_per_library,
+            order_lvs_numeric=True,
+            figure_dpi=args.dpi,
+            overlay_sig_thresh=args.overlay_sig_thresh,
+            vmax_raw=args.vmax_raw,
+            enrichr_retries=args.enrichr_retries,
+            enrichr_sleep_sec=args.enrichr_sleep_sec,
+            heatmap_top_n=args.heatmap_top_n,
+            heatmap_top_method=args.heatmap_top_method,
+            heatmap_topk_mean=args.heatmap_topk_mean,
+            heatmap_truncate_y=args.heatmap_truncate_y,
+            lv_order=args.lv_order,
+        ))
+
+        if args.make_lv_bubbles:
+            groups = sorted(
+                [re.sub(r"^enrichr_top_|\.csv$", "", os.path.basename(p))
+                 for p in glob.glob(os.path.join(enrich_out_dir, "enrichr_top_*.csv"))]
+            )
+            groups = sorted(groups, key=_num_key_from_group)
+            for g in groups:
+                plot_single_lv_bubble_from_enrichr(
+                    output_dir=enrich_out_dir,
+                    group_name=g,
+                    max_terms=args.lv_bubble_max_terms,
+                    min_k=args.lv_bubble_min_k,
+                    dpi=args.dpi,
+                )
+
+        if args.make_lv_bubble_grid:
+            plot_all_lvs_bubble_grid_from_enrichr(
+                output_dir=enrich_out_dir,
+                max_terms=args.lv_grid_max_terms,
+                min_k=args.lv_bubble_min_k,
+                ncols=args.lv_grid_ncols,
+                dpi=args.dpi,
+            )
+
+        if args.aggregate_within_sample:
+            aggregate_enrichr_within_sample(enrich_out_dir, fdr_thr=args.aggregate_fdr_thr)
+
+    elif args.mode.lower() == "gmt":
+        if not args.gmt_files:
+            raise ValueError("mode=gmt requires --gmt_files <file1.gmt> <file2.gmt> ...")
+        outputs.update(enrich_by_latent_gmt(
+            merged_df=merged,
+            gmt_files=args.gmt_files,
+            output_dir=enrich_out_dir,
+            gene_col=args.gene_col_out,
+            latent_col=args.latent_col,
+            sample_col=sample_col_for_enrich,
+            top_per_latent=args.top_per_library,
+            figure_dpi=args.dpi,
+            overlay_sig_thresh=args.overlay_sig_thresh,
+            vmax_raw=args.vmax_raw,
+            heatmap_top_n=args.heatmap_top_n,
+            heatmap_top_method=args.heatmap_top_method,
+            heatmap_topk_mean=args.heatmap_topk_mean,
+            heatmap_truncate_y=args.heatmap_truncate_y,
+            lv_order=args.lv_order,
+        ))
+    else:
+        raise ValueError("mode must be one of: enrichr, gmt")
+
+    # ---- ✅ GENE RELEVANCE (DisGeNET)
+    if args.run_gene_analysis:
+        gene_out_dir = os.path.join(out_root, "gene_relevance")
+        outputs.update(_compute_gene_relevance_from_disgenet(
+            merged_df=merged,
+            gene_col=args.gene_col_out,
+            latent_col=args.latent_col,
+            sample_col=sample_col_for_enrich,
+            out_dir=gene_out_dir,
+            mode=args.disgenet_mode,
+            disgenet_tsv=args.disgenet_tsv,
+            disgenet_token=args.disgenet_token,
+            disgenet_email=args.disgenet_email,
+            disgenet_password=args.disgenet_password,
+            disease_ids=args.disgenet_disease_ids,
+            disease_name=args.disgenet_disease_name,
+            api_min_score=args.disgenet_api_min_score,
+            api_source=args.disgenet_api_source,
+            group_by_sample=(sample_col_for_enrich is not None),
+            genes_per_group=args.disgenet_genes_per_group,
+            figure_dpi=args.dpi,
+            heatmap_top_n=args.disgenet_heatmap_top_n,
+            heatmap_truncate_y=args.heatmap_truncate_y,
+            lv_order=args.lv_order,
+            gene_relevance_thresh=args.disgenet_relevance_thresh,
+        ))
+
+    with open(os.path.join(out_root, "outputs_manifest.json"), "w") as f:
+        json.dump(outputs, f, indent=2, sort_keys=True)
+
+    print(f"[DONE] Output root: {out_root}")
+
+
+def run_pipeline(args: argparse.Namespace):
+    tag = f"LD{args.LD}_NS{args.NS}_L{args.L}_K{args.K}"
+
+    goto_aggregated_only = False
+    if args.run_aggregated_samples and not args.sample_id:
+        pooled_shap = os.path.join(
+            args.base_dir,
+            "outputs",
+            f"{args.disease}_LD{args.LD}_NS{args.NS}_L{args.L}_K{args.K}_top_snps_per_latent.csv",
+        )
+        if not os.path.exists(pooled_shap):
+            print(f"[INFO] Non-sample (pooled) SHAP not found: {pooled_shap}")
+            print("[INFO] Proceeding directly to ALL_SAMPLES aggregation (per-sample SHAPs).")
+            goto_aggregated_only = True
+
+    # (1) Single run
+    if not goto_aggregated_only:
+        if args.sample_id:
+            out_root = os.path.join(args.output_dir, args.disease, tag, args.sample_id)
+
+            merged = build_latent_gene_table_from_shap_sample(
+                base_dir=args.base_dir,
+                disease=args.disease,
+                LD=args.LD,
+                NS=args.NS,
+                L=args.L,
+                K=args.K,
+                sample_id=args.sample_id,
+                s2g_path=args.s2g_path,
+                bim_file=args.bim_file,
+                latent_col=args.latent_col,
+                gene_col_out=args.gene_col_out,
+            )
+            merged["Sample"] = args.sample_id
+            _run_one_analysis(args, merged, out_root, sample_col_for_enrich="Sample")
+
+        else:
+            out_root = os.path.join(args.output_dir, args.disease, tag)
+
+            merged = build_latent_gene_table_from_shap(
+                base_dir=args.base_dir,
+                disease=args.disease,
+                LD=args.LD,
+                NS=args.NS,
+                L=args.L,
+                K=args.K,
+                s2g_path=args.s2g_path,
+                bim_file=args.bim_file,
+                latent_col=args.latent_col,
+                gene_col_out=args.gene_col_out,
+            )
+            _run_one_analysis(args, merged, out_root, sample_col_for_enrich=None)
+
+    # (2) ALL_SAMPLES aggregation
+    if not args.run_aggregated_samples:
+        return
+
+    out_root_all = os.path.join(args.output_dir, args.disease, tag, "ALL_SAMPLES")
+    os.makedirs(out_root_all, exist_ok=True)
+
+    merged_all = build_latent_gene_table_from_shap_all_samples(
+        base_dir=args.base_dir,
+        disease=args.disease,
+        LD=args.LD,
+        NS=args.NS,
+        L=args.L,
+        K=args.K,
+        s2g_path=args.s2g_path,
+        bim_file=args.bim_file,
+        latent_col=args.latent_col,
+        gene_col_out=args.gene_col_out,
+    )
+
+    long_csv = os.path.join(out_root_all, "latent_gene_table.ALL_SAMPLES.long.csv")
+    merged_all.to_csv(long_csv, index=False)
+    print(f"[OK] ALL-SAMPLES long table: {long_csv} (n={len(merged_all)})")
+
+    wide_csv = os.path.join(out_root_all, "latent_gene_table.ALL_SAMPLES.wide_gene_x_sampleLV.csv")
+    write_gene_wide_matrix(
+        df_long=merged_all,
+        out_csv=wide_csv,
+        latent_col=args.latent_col,
+        gene_col=args.gene_col_out,
+    )
+    print(f"[OK] ALL-SAMPLES wide matrix: {wide_csv}")
+
+    # (2A) POOLED_BY_LV
+    pooled_lv_root = os.path.join(out_root_all, "POOLED_BY_LV")
+    pooled_lv_df = merged_all[[args.latent_col, args.gene_col_out]].copy()
+    _run_one_analysis(args, pooled_lv_df, pooled_lv_root, sample_col_for_enrich=None)
+
+    # (2B) POOLED_BY_SAMPLELV
+    pooled_samplelv_root = os.path.join(out_root_all, "POOLED_BY_SAMPLELV")
+    _run_one_analysis(args, merged_all.copy(), pooled_samplelv_root, sample_col_for_enrich="Sample")
+
+
+# =============================================================================
+# CLI (UPDATED: adds DisGeNET args)
+# =============================================================================
+
+def parse_args() -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        description="SHAP→SNP→Gene→Pathway pipeline with LV-level pathway plots (Enrichr/GMT) + DisGeNET gene relevance."
+    )
+
+    p.add_argument("--base_dir", type=str, required=True, help="Project base directory (expects base_dir/outputs/...).")
+    p.add_argument("--output_dir", type=str, required=True, help="Where to write results.")
+    p.add_argument("--disease", type=str, required=True)
+    p.add_argument("--LD", type=int, required=True)
+    p.add_argument("--NS", type=int, required=True)
+    p.add_argument("--L", type=int, required=True)
+    p.add_argument("--K", type=int, required=True)
+    p.add_argument("--sample_id", type=str, default=None, help="Optional: per-sample run (e.g., S1).")
+
+    p.add_argument("--s2g_path", type=str, required=True, help="SNP-to-Gene mapping file (TSV).")
+    p.add_argument(
+        "--bim_file",
+        type=str,
+        default=None,
+        help="PLINK .bim file to map chr_pos SNP_IDs (chr1_123_A_T_b38) -> rsIDs for cS2G merging.",
+    )
+
+    p.add_argument("--latent_col", type=str, default="Latent_Dim")
+    p.add_argument("--gene_col_out", type=str, default="GENE")
+
+    p.add_argument("--mode", type=str, default="enrichr", choices=["enrichr", "gmt"])
+    p.add_argument("--gene_sets", nargs="+", default=["Reactome_2022", "KEGG_2021_Human", "GO_Biological_Process_2023"])
+    p.add_argument("--gmt_files", nargs="+", default=None)
+
+    p.add_argument("--genes_per_lv", type=int, default=200)
+    p.add_argument("--top_per_library", type=int, default=10)
+    p.add_argument("--enrichr_retries", type=int, default=3)
+    p.add_argument("--enrichr_sleep_sec", type=float, default=1.0)
+
+    p.add_argument("--dpi", type=int, default=300)
+    p.add_argument("--overlay_sig_thresh", type=float, default=1.30103, help="-log10(0.05) by default.")
+    p.add_argument("--vmax_raw", type=float, default=6.0)
+
+    p.add_argument("--heatmap_top_n", type=int, default=10, help="Top-N pathways to display in readable heatmaps. 0 disables.")
+    p.add_argument("--heatmap_top_method", type=str, default="sig_count", choices=["sig_count", "max", "mean_topk"])
+    p.add_argument("--heatmap_topk_mean", type=int, default=3, help="For mean_topk scoring.")
+    p.add_argument("--heatmap_truncate_y", type=int, default=90, help="Truncate labels on y-axis (0 disables).")
+
+    p.add_argument(
+        "--lv_order",
+        type=str,
+        default="sig_count",
+        choices=["sig_count", "numeric", "sum", "max", "cluster"],
+        help="How to order LV columns in heatmaps."
+    )
+
+    p.add_argument("--make_lv_bubbles", action="store_true", help="Make one LV-level bubble plot per LV.")
+    p.add_argument("--make_lv_bubble_grid", action="store_true", help="Make a multi-LV bubble grid PDF.")
+    p.add_argument("--lv_bubble_max_terms", type=int, default=20)
+    p.add_argument("--lv_bubble_min_k", type=int, default=1)
+    p.add_argument("--lv_grid_max_terms", type=int, default=15)
+    p.add_argument("--lv_grid_ncols", type=int, default=4)
+
+    p.add_argument("--make_protocol_figure", action="store_true")
+
+    p.add_argument("--aggregate_within_sample", action="store_true")
+    p.add_argument("--aggregate_fdr_thr", type=float, default=0.05)
+
+    p.add_argument(
+        "--run_aggregated_samples",
+        action="store_true",
+        help="Also run ALL-SAMPLES analysis (reads S1..SK SHAP files) and outputs pooled+by-sample results."
+    )
+
+    # -----------------------------
+    # ✅ NEW: DisGeNET gene analysis
+    # -----------------------------
+    p.add_argument("--run_gene_analysis", action="store_true", help="Run gene-level disease relevance scoring using DisGeNET.")
+
+    p.add_argument("--disgenet_mode", type=str, default="api", choices=["api", "tsv"],
+                   help="Gene relevance mode: api (recommended) or tsv (local dump).")
+    p.add_argument("--disgenet_tsv", type=str, default=None,
+                   help="DisGeNET TSV file path (required if disgenet_mode=tsv).")
+
+    # Credentials:
+    p.add_argument("--disgenet_token", type=str, default=None, help="Optional bearer token (else use env DISGENET_TOKEN).")
+    p.add_argument("--disgenet_email", type=str, default=None, help="Optional email (else env DISGENET_EMAIL).")
+    p.add_argument("--disgenet_password", type=str, default=None, help="Optional password (else env DISGENET_PASSWORD).")
+
+    # Disease matching:
+    p.add_argument("--disgenet_disease_ids", nargs="*", default=None,
+                   help="Exact DisGeNET diseaseId / UMLS CUI list (recommended), e.g., C0002395 ...")
+    p.add_argument("--disgenet_disease_name", type=str, default=None,
+                   help="Fallback: substring match on disease name (case-insensitive), e.g., 'Alzheimer'.")
+
+    # API query controls:
+    p.add_argument("--disgenet_api_min_score", type=float, default=0.0, help="API: min_score filter (0..1).")
+    p.add_argument("--disgenet_api_source", type=str, default="ALL",
+                   help="API: source filter (ALL, CURATED, LITERATURE, ANIMAL_MODELS, etc.).")
+
+    # Plot/threshold controls:
+    p.add_argument("--disgenet_genes_per_group", type=int, default=200,
+                   help="How many genes per LV (or LV:Sample) to score against DisGeNET.")
+    p.add_argument("--disgenet_relevance_thresh", type=float, default=0.1,
+                   help="Score threshold to call a gene 'relevant' (used for overlays + counts).")
+    p.add_argument("--disgenet_heatmap_top_n", type=int, default=50,
+                   help="Also export a Top-N genes heatmap (0 disables).")
+
+    return p.parse_args()
+
+
+if __name__ == "__main__":
+    args = parse_args()
+    run_pipeline(args)
+

@@ -11,7 +11,7 @@ This repository is organized in **two layers**:
 
 ## What is included
 
-
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/d8b23e99-01d9-4e8f-a79f-d9510bc7370a" />
 
 ## Code
 

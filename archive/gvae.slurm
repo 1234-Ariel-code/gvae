@@ -8,7 +8,7 @@
 #SBATCH --output=logs/qgvae_grid_%A_%a.out
 #SBATCH --error=logs/qgvae_grid_%A_%a.err
 #SBATCH --array=0-2879
-
+#
 set -euo pipefail
 
 echo "[$(date)] Starting grid job TASK_ID=${SLURM_ARRAY_TASK_ID}"

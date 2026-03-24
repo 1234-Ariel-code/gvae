@@ -1,4 +1,4 @@
-# gVAE: Genomic Variational Autoencoder
+## gVAE: Genomic Variational Autoencoder
 
 Public, user-friendly repository scaffold for the gVAE manuscript.
 

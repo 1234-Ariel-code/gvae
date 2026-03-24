@@ -22,34 +22,6 @@ The exact scripts we run on real data analysis is reported at `archive/`.
 - manuscript figure scripts under `archive/`
 - the original analysis scripts and SLURM examples under `scripts/internal/` and `scripts/hpc/`
 
-## Repository structure
-
-```text
-.
-├── app/
-│   └── streamlit_app.py
-├── examples/
-│   ├── configs/
-│   ├── manuscript_summary_tables/
-│   └── synthetic_data/
-├── figure_scripts/
-│   ├── figure2_robustness_distributions.R
-│   ├── figure3_reconstruction_and_prediction.R
-│   ├── figure4_gene_pathway_relevance.R
-│   └── figure5_dynamic_representation_vs_gwas.R
-├── gvae/
-├── scripts/
-│   ├── generate_synthetic_data.py
-│   ├── run_demo_pipeline.py
-│   ├── train_representation.py
-│   ├── run_downstream_prediction.py
-│   ├── prioritize_snps.py
-│   ├── run_gene_pathway_analysis.py
-│   ├── internal/
-│   └── hpc/
-└── README.md
-```
-
 ## User quick start
 
 ### 1. Create an environment

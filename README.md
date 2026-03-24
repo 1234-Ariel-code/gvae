@@ -146,4 +146,4 @@ This public repository does **not** include real genotype or phenotype data. The
 
 ## Citation
 
-Please cite the manuscript and this repository if you use the code (see `CITATION.cff`).
+Please cite the manuscript and this repository if you use the code (see CITATION.cff).

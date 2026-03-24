@@ -2,7 +2,7 @@
 
 Public, user-friendly repository scaffold for the gVAE manuscript.
 
-<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/239fd223-b02d-49f1-88d9-f6e70664ce5f" />
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
 
 This repository is organized in **two layers**:
 
@@ -10,6 +10,8 @@ This repository is organized in **two layers**:
 2. **Controlled-data analysis layer**: the actual analysis and figure-generation scripts used for the manuscript workflow, adapted into a public repository structure. These scripts require user-supplied genotype/phenotype files and exported summary tables because real patient data cannot be shared publicly.
 
 ## What is included
+
+
 
 ## Code
 
@@ -136,5 +138,3 @@ This public repository does **not** include real genotype or phenotype data. The
 ## Citation
 
 Please cite the manuscript and this repository if you use the code (see CITATION.cff).
-
-<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />

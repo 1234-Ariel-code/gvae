@@ -1,0 +1,52 @@
+{
+  "task": "binary",
+  "dataset_name": "demo",
+  "n_samples": 200,
+  "n_snps": 500,
+  "causal_snps": [
+    "rsSIM95",
+    "rsSIM168",
+    "rsSIM335",
+    "rsSIM134",
+    "rsSIM463",
+    "rsSIM118",
+    "rsSIM212",
+    "rsSIM140",
+    "rsSIM146",
+    "rsSIM83",
+    "rsSIM294",
+    "rsSIM393",
+    "rsSIM265",
+    "rsSIM486",
+    "rsSIM257",
+    "rsSIM414",
+    "rsSIM319",
+    "rsSIM495",
+    "rsSIM167",
+    "rsSIM428"
+  ],
+  "format_bundle": [
+    "assoc",
+    "bed",
+    "bim",
+    "fam",
+    "filtered_csv",
+    "genotypes_csv",
+    "phen_file",
+    "phenotype_csv",
+    "tfam",
+    "tped"
+  ],
+  "paths": {
+    "genotypes_csv": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/genotypes.csv",
+    "phenotype_csv": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/phenotype.csv",
+    "filtered_csv": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo_filtered.csv",
+    "phen_file": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo_origin.phen",
+    "bed": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo.bed",
+    "bim": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo.bim",
+    "fam": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo.fam",
+    "tped": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo_origin.tped",
+    "tfam": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo_origin.tfam",
+    "assoc": "/mnt/data/gvae_repo_exact/gvae_github_repo/examples/synthetic_data/binary_demo/demo_gwas.assoc"
+  }
+}

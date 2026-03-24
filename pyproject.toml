@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gvae"
+version = "0.1.0"
+description = "Genomic Variational Autoencoder for stable representation learning in high-dimensional genomic data."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "numpy>=1.26",
+  "pandas>=2.2",
+  "scikit-learn>=1.4",
+  "matplotlib>=3.8",
+  "pyyaml>=6.0",
+  "streamlit>=1.33",
+  "tensorflow>=2.15",
+  "shap>=0.45",
+  "scipy>=1.12"
+]
+
+[tool.setuptools]
+packages = ["gvae"]
+
+[tool.setuptools.package-dir]
+gvae = "gvae"

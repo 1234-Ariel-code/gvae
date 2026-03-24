@@ -1,0 +1,12 @@
+seed: 42
+task: quantitative
+data_dir: outputs/demo_quant_data
+out_dir: outputs/demo_quant_run
+latent_dims: [16]
+num_samples_list: [10]
+num_layers_list: [2]
+beta_values: [1.0, 4.0]
+epochs: 10
+batch_size: 64
+noise_eps: 0.05
+top_k_snps: 100

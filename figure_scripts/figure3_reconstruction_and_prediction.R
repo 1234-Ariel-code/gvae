@@ -1,5 +1,4 @@
 # ============================================================
-# Publication-quality 4-panel figure:
 # Reconstruction performance (R2, MSE) + Classification performance (AUC, Accuracy)
 # Top row   : R2, MSE
 # Bottom row: AUC, Accuracy

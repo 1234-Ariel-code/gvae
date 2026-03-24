@@ -1,4 +1,4 @@
-# ============================================================ # High-impact journal figure: # Robustness distributions across configurations # comparing BaselineVAE, Best BetaVAE, and gVAE # Revised version: clearer separation between disease blocks
+# ============================================================ # Robustness distributions across configurations # comparing BaselineVAE, Best BetaVAE, and gVAE # Revised version: clearer separation between disease blocks
 # ============================================================
 library(tidyverse)
 library(patchwork)

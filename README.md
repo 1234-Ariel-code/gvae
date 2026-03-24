@@ -136,3 +136,5 @@ This public repository does **not** include real genotype or phenotype data. The
 ## Citation
 
 Please cite the manuscript and this repository if you use the code (see CITATION.cff).
+
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />

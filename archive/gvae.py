@@ -82,11 +82,6 @@ def looad_bed_as_float32(bed_prefix: str) -> np.ndarray:
 
     return X
 
-
-
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-
 """
 PLINK BED loader + downsampling pipeline (rows + SNPs), with optional GWAS-top SNP selection.
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env Rscript
 
 # ============================================================
+# Dynamic empirical SNP-importance construction against GWAS
 # Flat latent-folder version for ARC/local use
 # ============================================================
 
@@ -154,8 +155,7 @@ extract_disease_from_latent <- function(path) {
 
 extract_config_from_latent <- function(path) {
   nm <- basename(path)
-  cfg <- stringr::str_extract(nm, "LD[0-9]+_NS[0-9]+_L[0-9]+")
-  cfg
+  stringr::str_extract(nm, "LD[0-9]+_NS[0-9]+_L[0-9]+")
 }
 
 extract_disease_from_gwas <- function(path) {
@@ -197,26 +197,46 @@ read_gwas_robust <- function(path) {
 
   names(df) <- trimws(names(df))
 
-  if (!"SNP" %in% names(df)) stop("GWAS file missing SNP column: ", basename(path))
-  if (!"P" %in% names(df)) stop("GWAS file missing P column: ", basename(path))
+  # normalize common aliases
+  snp_col <- intersect(c("SNP", "rsid", "RSID", "MarkerName", "ID", "Marker"), names(df))
+  p_col   <- intersect(c("P", "p", "PVAL", "P_VALUE", "Pvalue", "pvalue"), names(df))
+  bp_col  <- intersect(c("BP", "POS", "Position", "position"), names(df))
+  chr_col <- intersect(c("CHR", "CHROM", "Chromosome", "chrom"), names(df))
 
-  if (!"BP" %in% names(df)) {
-    df <- df %>%
+  if (length(snp_col) == 0) {
+    warning("GWAS file columns are: ", paste(names(df), collapse = ", "))
+    stop("GWAS file missing SNP column: ", basename(path))
+  }
+  if (length(p_col) == 0) {
+    warning("GWAS file columns are: ", paste(names(df), collapse = ", "))
+    stop("GWAS file missing P column: ", basename(path))
+  }
+
+  snp_col <- snp_col[1]
+  p_col   <- p_col[1]
+  bp_col  <- if (length(bp_col) > 0) bp_col[1] else NULL
+  chr_col <- if (length(chr_col) > 0) chr_col[1] else NULL
+
+  out <- df %>%
+    transmute(
+      SNP = as.character(.data[[snp_col]]),
+      P   = suppressWarnings(as.numeric(.data[[p_col]])),
+      BP  = if (!is.null(bp_col)) suppressWarnings(as.numeric(.data[[bp_col]])) else NA_real_,
+      CHR = if (!is.null(chr_col)) as.character(.data[[chr_col]]) else NA_character_
+    )
+
+  if (all(is.na(out$BP))) {
+    out <- out %>%
       mutate(BP = suppressWarnings(as.numeric(stringr::str_extract(SNP, "(?<=chr[0-9XYM]+_)[0-9]+"))))
   }
 
-  if (!"CHR" %in% names(df)) {
-    df <- df %>%
+  if (all(is.na(out$CHR))) {
+    out <- out %>%
       mutate(CHR = stringr::str_extract(SNP, "(?<=chr)[0-9XYM]+"))
   }
 
-  df %>%
-    mutate(
-      SNP = as.character(SNP),
-      CHR = as.character(CHR),
-      BP  = suppressWarnings(as.numeric(BP)),
-      P   = suppressWarnings(as.numeric(P))
-    )
+  out %>%
+    filter(!is.na(SNP), SNP != "", !is.na(P))
 }
 
 load_bim_lookup_for_disease <- function(bim_root, disease) {
@@ -463,6 +483,8 @@ if (length(gwas_files) == 0) stop("No *_gwas.assoc or *_gwas.qassoc files found 
 
 message("Found ", length(latent_files), " latent files")
 message("Found ", length(gwas_files), " GWAS files")
+message("GWAS files found:")
+print(gwas_files)
 
 latent_all <- map_dfr(latent_files, read_latent)
 
@@ -470,6 +492,12 @@ gwas_tbl <- tibble(
   Disease = map_chr(gwas_files, extract_disease_from_gwas),
   gwas_file = gwas_files
 )
+
+message("Diseases in latent_all:")
+print(sort(unique(latent_all$Disease)))
+
+message("Diseases in gwas_tbl:")
+print(sort(unique(gwas_tbl$Disease)))
 
 # ------------------------------------------------------------
 # 10. RUN DISEASE LOOP
@@ -481,6 +509,8 @@ skip_rows <- list()
 diag_rows <- list()
 
 diseases_common <- intersect(unique(latent_all$Disease), gwas_tbl$Disease)
+message("Common diseases:")
+print(sort(diseases_common))
 
 for (d in diseases_common) {
   message("Processing disease: ", d)
@@ -763,7 +793,7 @@ p_main_a <- overall_df %>%
   scale_x_continuous(expand = expansion(mult = c(0.08, 0.12))) +
   labs(
     title = "a  Overall gain over GWAS in disease-relevant gene recovery",
-    subtitle = "Representation is built dynamically by selecting SNPs that most improve matched-budget recovery over GWAS.",
+    subtitle = "Per-LV vs GWAS with equal SNPs.",
     x = "Δ DisGeNET genes",
     y = "Disease"
   ) +
@@ -806,7 +836,7 @@ p_main_c <- abs_long %>%
   scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
   labs(
     title = "c  Absolute disease-relevant gene recovery",
-    subtitle = "Counts of DisGeNET genes recovered by GWAS and by the dynamically selected representation.",
+    subtitle = "Counts of DisGeNET genes recovered by GWAS.",
     x = "Recovered DisGeNET genes",
     y = "Disease"
   ) +
@@ -820,7 +850,7 @@ p_main_d <- abs_long %>%
   scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
   labs(
     title = glue("d  Absolute {drug_label} gene recovery"),
-    subtitle = glue("Counts of {drug_label} genes recovered by GWAS and by the dynamically selected representation."),
+    subtitle = glue("Counts of {drug_label} genes recovered by GWAS."),
     x = glue("Recovered {drug_label} genes"),
     y = NULL
   ) +
@@ -853,7 +883,7 @@ p_supp_a <- ggplot(supp_df, aes(x = LV, y = Disease, fill = max_delta_DisGeNET))
   ) +
   labs(
     title = "a  Best per-LV gain over GWAS in disease-relevant recovery",
-    subtitle = "Each cell shows the strongest gain achieved by an LV during dynamic SNP selection.",
+    subtitle = "Each cell shows the strongest gain achieved by an LV.",
     x = "Latent variable",
     y = "Disease"
   ) +
@@ -864,8 +894,8 @@ p_supp_b <- ggplot(supp_df, aes(x = LV, y = Disease, fill = best_k_DisGeNET)) +
   geom_text(aes(label = best_k_DisGeNET), size = 2.9, fontface = "bold") +
   scale_fill_viridis_c(option = "C", name = expression(k^"*")) +
   labs(
-    title = "b  Optimal selected SNP budget per LV",
-    subtitle = "The selected budget is the point where each LV most outperforms GWAS in DisGeNET recovery.",
+    title = "b  SNP budget per LV",
+    subtitle = "The budget is the point where each LV most outperforms GWAS in DisGeNET recovery.",
     x = "Latent variable",
     y = NULL
   ) +
@@ -888,7 +918,7 @@ p_supp_c <- ggplot(supp_df, aes(x = LV, y = Disease, fill = max_delta_Drug)) +
   ) +
   labs(
     title = glue("c  Best per-LV gain over GWAS in {drug_label} recovery"),
-    subtitle = "Each cell shows the strongest gain achieved by an LV during dynamic SNP selection.",
+    subtitle = "Each cell shows the strongest gain achieved by an LV.",
     x = "Latent variable",
     y = "Disease"
   ) +
@@ -909,9 +939,12 @@ plot_df_d <- summary_supp %>%
     )
   )
 
+fill_vals_supp_d <- c("DisGeNET" = "#666666")
+fill_vals_supp_d[drug_label] <- "#54A24B"
+
 p_supp_d <- ggplot(plot_df_d, aes(x = Fraction, y = Disease, fill = Metric)) +
   geom_col(position = position_dodge(width = 0.75), width = 0.68) +
-  scale_fill_manual(values = c("DisGeNET" = "#666666", !!drug_label := "#54A24B")) +
+  scale_fill_manual(values = fill_vals_supp_d) +
   scale_x_continuous(
     limits = c(0, 1.05),
     breaks = seq(0, 1, 0.25),

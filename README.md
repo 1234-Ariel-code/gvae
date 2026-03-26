@@ -57,7 +57,7 @@ python scripts/generate_synthetic_data.py \
 python scripts/run_demo_pipeline.py \
   --task binary \
   --data_dir examples/synthetic_data/binary_demo \
-  --out_dir reviewer_runs/binary_demo \
+  --out_dir user_runs/binary_demo \
   --latent_dim 16 \
   --num_samples 10 \
   --depth 2 \
@@ -77,7 +77,7 @@ python scripts/generate_synthetic_data.py \
 python scripts/run_demo_pipeline.py \
   --task quantitative \
   --data_dir examples/synthetic_data/quant_demo \
-  --out_dir reviewer_runs/quant_demo \
+  --out_dir user_runs/quant_demo \
   --latent_dim 16 \
   --num_samples 10 \
   --depth 2 \

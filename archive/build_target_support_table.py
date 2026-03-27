@@ -2,20 +2,37 @@
 # -*- coding: utf-8 -*-
 
 """
+
 Build a disease-specific target-support gene table from:
   1) Open Targets GraphQL API
-  2) Optional local DepMap dependency export
+  2) Local DepMap files:
+       - CRISPRGeneEffectUncorrected.csv
+       - Model.csv
 
-Output:
-  target_support_gene_table.tsv
+This version is for the exact DepMap files provided by the user.
 
-This table can then be used by the R pipeline as the drug/target
-support reference gene set.
+Expected inputs
+---------------
+--out_file            Output TSV path
+--depmap_gene_file    Path to CRISPRGeneEffectUncorrected.csv
+--depmap_model_file   Path to Model.csv
 
-Expected behavior:
-- If a local DepMap file exists, merge its support into the table.
-- If DepMap is missing, Open Targets alone is still enough to build
-  a useful first-pass target-support table.
+Output
+------
+A TSV with columns such as:
+  Disease
+  GENE
+  OpenTargets_supported
+  OpenTargets_score
+  OpenTargets_disease_id
+  OpenTargets_disease_name
+  DepMap_supported
+  DepMap_score
+  DepMap_min_score
+  DepMap_n_models
+  DepMap_lineage_match_type
+  TargetSupportScore
+  SupportTier
 """
 
 from __future__ import annotations
@@ -23,34 +40,47 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
 
+
 OPEN_TARGETS_GRAPHQL = "https://api.platform.opentargets.org/api/v4/graphql"
 
+
+# ---------------------------------------------------------------------
+# Disease map
+# ---------------------------------------------------------------------
+# Columns:
+#   Disease                  short code used in your project
+#   Disease_label            label used to search Open Targets
+#   Cancer_like              whether DepMap support should be attempted
+#   Lineage_patterns         regex patterns for OncotreeLineage
+#   Primary_disease_patterns regex patterns for OncotreePrimaryDisease
 DISEASE_MAP = [
-    ("ALZ", "Alzheimer's disease", False, None),
-    ("ASD", "autistic disorder", False, None),
-    ("BD",  "bipolar disorder", False, None),
-    ("BMI", "obesity", False, None),
-    ("BRC", "breast cancer", True, "breast"),
-    ("CAD", "coronary artery disease", False, None),
-    ("CD",  "ulcerative colitis", False, None),
-    ("COL", "colon cancer", True, "colorectal|colon"),
-    ("EOS", "Barrett's esophagus", True, "esophagus|upper_aerodigestive"),
-    ("HDL", "metabolic syndrome X", False, None),
-    ("HGT", "osteoporosis", False, None),
-    ("HT",  "hypertension", False, None),
-    ("LDL", "metabolic syndrome X", False, None),
-    ("LUN", "lung cancer", True, "lung"),
-    ("PRC", "prostate cancer", True, "prostate"),
-    ("RA",  "rheumatoid arthritis", False, None),
-    ("T1D", "type 1 diabetes mellitus", False, None),
-    ("T2D", "type 2 diabetes mellitus", False, None),
+    ("ALZ", "Alzheimer's disease", False, None, None),
+    ("ASD", "autistic disorder", False, None, None),
+    ("BD",  "bipolar disorder", False, None, None),
+    ("BMI", "obesity", False, None, None),
+    ("BRC", "breast cancer", True,  r"breast", r"breast"),
+    ("CAD", "coronary artery disease", False, None, None),
+    ("CD",  "ulcerative colitis", False, None, None),
+    ("COL", "colon cancer", True,  r"bowel|large intestine|colon|colorectal", r"colon|colorectal"),
+    ("EOS", "Barrett's esophagus", True,  r"esophagus|upper aerodigestive", r"esophagus"),
+    ("HDL", "metabolic syndrome X", False, None, None),
+    ("HGT", "osteoporosis", False, None, None),
+    ("HT",  "hypertension", False, None, None),
+    ("LDL", "metabolic syndrome X", False, None, None),
+    ("LUN", "lung cancer", True,  r"lung", r"lung"),
+    ("PRC", "prostate cancer", True,  r"prostate", r"prostate"),
+    ("RA",  "rheumatoid arthritis", False, None, None),
+    ("T1D", "type 1 diabetes mellitus", False, None, None),
+    ("T2D", "type 2 diabetes mellitus", False, None, None),
 ]
+
 
 SEARCH_DISEASE_QUERY = """
 query SearchDisease($queryString: String!) {
@@ -85,6 +115,9 @@ query DiseaseAssociations($diseaseId: String!, $pageIndex: Int!, $pageSize: Int!
 """
 
 
+# ---------------------------------------------------------------------
+# Logging helpers
+# ---------------------------------------------------------------------
 def log(msg: str) -> None:
     print(msg, flush=True)
 
@@ -99,6 +132,9 @@ def ensure_parent_dir(path: str) -> None:
         os.makedirs(parent, exist_ok=True)
 
 
+# ---------------------------------------------------------------------
+# Open Targets helpers
+# ---------------------------------------------------------------------
 def post_graphql(query: str, variables: Dict[str, Any], timeout: int = 60) -> Dict[str, Any]:
     response = requests.post(
         OPEN_TARGETS_GRAPHQL,
@@ -119,24 +155,32 @@ def find_best_disease_hit(disease_name: str) -> Optional[Dict[str, Any]]:
     if not hits:
         return None
 
-    def sort_key(hit: Dict[str, Any]) -> Any:
+    target_name = disease_name.strip().lower()
+
+    def sort_key(hit: Dict[str, Any]) -> Tuple[int, int, int]:
         hit_name = str(hit.get("name", "")).strip().lower()
-        target_name = disease_name.strip().lower()
         return (
             0 if hit_name == target_name else 1,
             abs(len(hit_name) - len(target_name)),
             len(hit_name),
         )
 
-    hits_sorted = sorted(hits, key=sort_key)
-    return hits_sorted[0]
+    return sorted(hits, key=sort_key)[0]
 
 
 def fetch_open_targets_genes(disease_name: str) -> pd.DataFrame:
     hit = find_best_disease_hit(disease_name)
     if hit is None:
         warn(f"No Open Targets disease hit found for: {disease_name}")
-        return pd.DataFrame(columns=["GENE", "OpenTargets_score", "OpenTargets_disease_id", "OpenTargets_disease_name"])
+        return pd.DataFrame(
+            columns=[
+                "GENE",
+                "OpenTargets_score",
+                "OpenTargets_disease_id",
+                "OpenTargets_disease_name",
+                "OpenTargets_supported",
+            ]
+        )
 
     disease_id = hit["id"]
     matched_name = hit.get("name", disease_name)
@@ -146,159 +190,441 @@ def fetch_open_targets_genes(disease_name: str) -> pd.DataFrame:
     page_size = 500
 
     while True:
-      data = post_graphql(
-          ASSOCIATIONS_QUERY,
-          {"diseaseId": disease_id, "pageIndex": page_index, "pageSize": page_size},
-      )
+        data = post_graphql(
+            ASSOCIATIONS_QUERY,
+            {"diseaseId": disease_id, "pageIndex": page_index, "pageSize": page_size},
+        )
 
-      disease_obj = data.get("disease")
-      if not disease_obj:
-          break
+        disease_obj = data.get("disease")
+        if not disease_obj:
+            break
 
-      assoc = disease_obj.get("associatedTargets", {})
-      chunk = assoc.get("rows", [])
-      if not chunk:
-          break
+        assoc = disease_obj.get("associatedTargets", {})
+        chunk = assoc.get("rows", [])
+        if not chunk:
+            break
 
-      for row in chunk:
-          target = row.get("target") or {}
-          gene = target.get("approvedSymbol")
-          score = row.get("score")
-          if gene:
-              rows.append(
-                  {
-                      "GENE": str(gene).upper().strip(),
-                      "OpenTargets_score": float(score) if score is not None else 0.0,
-                      "OpenTargets_disease_id": disease_id,
-                      "OpenTargets_disease_name": matched_name,
-                  }
-              )
+        for row in chunk:
+            target = row.get("target") or {}
+            gene = target.get("approvedSymbol")
+            score = row.get("score")
+            if gene:
+                rows.append(
+                    {
+                        "GENE": str(gene).upper().strip(),
+                        "OpenTargets_score": float(score) if score is not None else 0.0,
+                        "OpenTargets_disease_id": disease_id,
+                        "OpenTargets_disease_name": matched_name,
+                    }
+                )
 
-      total = assoc.get("count", 0)
-      page_index += 1
-      if page_index * page_size >= total:
-          break
+        total = assoc.get("count", 0)
+        page_index += 1
+        if page_index * page_size >= total:
+            break
 
     if not rows:
         warn(f"No associated targets returned for disease: {disease_name} ({disease_id})")
-        return pd.DataFrame(columns=["GENE", "OpenTargets_score", "OpenTargets_disease_id", "OpenTargets_disease_name"])
+        return pd.DataFrame(
+            columns=[
+                "GENE",
+                "OpenTargets_score",
+                "OpenTargets_disease_id",
+                "OpenTargets_disease_name",
+                "OpenTargets_supported",
+            ]
+        )
 
     df = pd.DataFrame(rows)
     df = (
-        df.groupby(["GENE", "OpenTargets_disease_id", "OpenTargets_disease_name"], as_index=False)["OpenTargets_score"]
+        df.groupby(["GENE", "OpenTargets_disease_id", "OpenTargets_disease_name"], as_index=False)[
+            "OpenTargets_score"
+        ]
         .max()
     )
     df["OpenTargets_supported"] = 1
     return df
 
 
-def pick_column(columns: List[str], options: List[str]) -> Optional[str]:
-    for opt in options:
-        if opt in columns:
-            return opt
+# ---------------------------------------------------------------------
+# DepMap helpers
+# ---------------------------------------------------------------------
+GENE_COL_PATTERN = re.compile(r"^(?P<symbol>.+?)\s+\((?P<entrez>\d+)\)$")
+
+
+def normalize_gene_symbol_from_depmap_column(col: str) -> Optional[str]:
+    """
+    DepMap gene-effect matrix columns look like:
+      KRAS (3845)
+      TP53 (7157)
+
+    Returns:
+      KRAS, TP53, ...
+    """
+    if col == "ModelID":
+        return None
+
+    m = GENE_COL_PATTERN.match(str(col).strip())
+    if m:
+        return m.group("symbol").upper().strip()
+
+    # Fallback: allow plain symbol columns if ever encountered
+    col = str(col).strip()
+    if col and col.isupper():
+        return col
+
     return None
 
 
-def load_depmap(depmap_file: str, disease_map_df: pd.DataFrame, threshold: float = -0.5) -> pd.DataFrame:
-    if not depmap_file or not os.path.exists(depmap_file):
-        warn("No DepMap file found. Continuing with Open Targets only.")
-        return pd.DataFrame(columns=["Disease", "GENE", "DepMap_supported", "DepMap_score", "DepMap_min_score"])
+def load_depmap_gene_effect(depmap_gene_file: str) -> pd.DataFrame:
+    if not depmap_gene_file or not os.path.exists(depmap_gene_file):
+        raise FileNotFoundError(f"DepMap gene-effect file not found: {depmap_gene_file}")
 
-    log(f"Loading DepMap file: {depmap_file}")
-    dep = pd.read_csv(depmap_file)
-    dep.columns = [str(c).strip().lower() for c in dep.columns]
+    log(f"Loading DepMap gene-effect file: {depmap_gene_file}")
+    df = pd.read_csv(depmap_gene_file)
 
-    gene_col = pick_column(dep.columns.tolist(), ["gene", "gene_symbol", "symbol"])
-    lineage_col = pick_column(dep.columns.tolist(), ["lineage", "lineage_1", "primary_disease", "disease", "oncotree_lineage"])
-    score_col = pick_column(dep.columns.tolist(), ["dependency_score", "gene_effect", "dep_score", "chronos", "geneeffect"])
+    if "ModelID" not in df.columns:
+        raise ValueError("DepMap gene-effect file must contain a 'ModelID' column.")
 
-    if gene_col is None or score_col is None:
-        warn("DepMap file missing required gene/score columns. Ignoring DepMap.")
-        return pd.DataFrame(columns=["Disease", "GENE", "DepMap_supported", "DepMap_score", "DepMap_min_score"])
+    keep_cols = ["ModelID"]
+    rename_map: Dict[str, str] = {}
 
-    keep_cols = [gene_col, score_col]
-    if lineage_col is not None:
-        keep_cols.append(lineage_col)
-
-    dep = dep[keep_cols].copy()
-    new_cols = ["GENE", "dep_score"] if lineage_col is None else ["GENE", "dep_score", "lineage"]
-    if lineage_col is not None:
-        dep.columns = ["GENE", "dep_score", "lineage"] if keep_cols == [gene_col, score_col, lineage_col] else dep.columns
-        # safer explicit mapping
-        dep = dep.rename(columns={gene_col: "GENE", score_col: "dep_score", lineage_col: "lineage"})
-    else:
-        dep = dep.rename(columns={gene_col: "GENE", score_col: "dep_score"})
-        dep["lineage"] = None
-
-    dep["GENE"] = dep["GENE"].astype(str).str.upper().str.strip()
-    dep["dep_score"] = pd.to_numeric(dep["dep_score"], errors="coerce")
-    dep["lineage"] = dep["lineage"].astype(str).str.lower()
-
-    dep = dep.dropna(subset=["GENE", "dep_score"])
-
-    out_parts: List[pd.DataFrame] = []
-
-    for _, row in disease_map_df.iterrows():
-        disease = row["Disease"]
-        is_cancer_like = bool(row["Cancer_like"])
-        lineage_pattern = row["DepMap_lineage_keywords"]
-
-        if not is_cancer_like or pd.isna(lineage_pattern) or lineage_pattern is None:
+    for col in df.columns:
+        if col == "ModelID":
             continue
+        gene = normalize_gene_symbol_from_depmap_column(col)
+        if gene is not None:
+            keep_cols.append(col)
+            rename_map[col] = gene
 
-        sub = dep[dep["lineage"].fillna("").str.contains(str(lineage_pattern), regex=True, na=False)].copy()
-        if sub.empty:
-            continue
+    if len(keep_cols) <= 1:
+        raise ValueError("No gene-effect columns could be parsed from the DepMap gene-effect file.")
 
-        agg = (
-            sub.groupby("GENE", as_index=False)
-            .agg(
-                DepMap_mean_score=("dep_score", "mean"),
-                DepMap_min_score=("dep_score", "min"),
-            )
+    df = df[keep_cols].copy()
+    df = df.rename(columns=rename_map)
+    df["ModelID"] = df["ModelID"].astype(str).str.strip()
+
+    return df
+
+
+def load_depmap_model_metadata(depmap_model_file: str) -> pd.DataFrame:
+    if not depmap_model_file or not os.path.exists(depmap_model_file):
+        raise FileNotFoundError(f"DepMap model metadata file not found: {depmap_model_file}")
+
+    log(f"Loading DepMap model metadata file: {depmap_model_file}")
+    meta = pd.read_csv(depmap_model_file)
+
+    required = ["ModelID", "OncotreeLineage", "OncotreePrimaryDisease"]
+    missing = [c for c in required if c not in meta.columns]
+    if missing:
+        raise ValueError(
+            f"DepMap model metadata file is missing required columns: {missing}"
         )
 
-        agg["Disease"] = disease
-        agg["DepMap_supported"] = (agg["DepMap_min_score"] <= threshold).astype(int)
-        agg["DepMap_score"] = (-agg["DepMap_min_score"]).clip(lower=0)
-
-        agg = agg[agg["DepMap_supported"] == 1][
-            ["Disease", "GENE", "DepMap_supported", "DepMap_score", "DepMap_min_score"]
+    meta = meta[
+        [
+            "ModelID",
+            "CellLineName",
+            "StrippedCellLineName",
+            "OncotreeLineage",
+            "OncotreePrimaryDisease",
+            "OncotreeSubtype",
+            "OncotreeCode",
         ]
+    ].copy()
 
-        if not agg.empty:
-            out_parts.append(agg)
+    for col in meta.columns:
+        meta[col] = meta[col].astype(str).str.strip()
 
-    if not out_parts:
+    return meta
+
+
+def select_models_for_disease(
+    meta: pd.DataFrame,
+    lineage_pattern: Optional[str],
+    primary_disease_pattern: Optional[str],
+) -> Tuple[pd.DataFrame, str]:
+    """
+    Select relevant models for one disease using metadata.
+
+    Preference:
+      1) models matching both lineage and primary disease
+      2) if none, models matching primary disease only
+      3) if none, models matching lineage only
+    """
+    lineage = meta["OncotreeLineage"].fillna("").str.lower()
+    primary = meta["OncotreePrimaryDisease"].fillna("").str.lower()
+
+    lineage_mask = pd.Series(False, index=meta.index)
+    primary_mask = pd.Series(False, index=meta.index)
+
+    if lineage_pattern:
+        lineage_mask = lineage.str.contains(lineage_pattern, regex=True, na=False)
+    if primary_disease_pattern:
+        primary_mask = primary.str.contains(primary_disease_pattern, regex=True, na=False)
+
+    both = meta[lineage_mask & primary_mask].copy()
+    if not both.empty:
+        return both, "lineage+primary"
+
+    if primary_disease_pattern:
+        by_primary = meta[primary_mask].copy()
+        if not by_primary.empty:
+            return by_primary, "primary_only"
+
+    if lineage_pattern:
+        by_lineage = meta[lineage_mask].copy()
+        if not by_lineage.empty:
+            return by_lineage, "lineage_only"
+
+    return meta.iloc[0:0].copy(), "none"
+
+
+def compute_depmap_support_for_disease(
+    disease: str,
+    gene_effect_wide: pd.DataFrame,
+    model_meta: pd.DataFrame,
+    lineage_pattern: Optional[str],
+    primary_disease_pattern: Optional[str],
+    threshold: float = -0.5,
+) -> pd.DataFrame:
+    """
+    Build gene-level support table for one disease from DepMap.
+
+    A gene is considered DepMap-supported if its minimum gene-effect
+    among selected models is <= threshold.
+    """
+    selected_models, match_type = select_models_for_disease(
+        model_meta,
+        lineage_pattern=lineage_pattern,
+        primary_disease_pattern=primary_disease_pattern,
+    )
+
+    if selected_models.empty:
+        warn(f"No DepMap models matched for disease {disease}.")
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
+
+    merged = gene_effect_wide.merge(
+        selected_models[["ModelID"]],
+        on="ModelID",
+        how="inner",
+    )
+
+    if merged.empty:
+        warn(f"No overlapping ModelID entries between gene-effect and metadata for disease {disease}.")
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
+
+    gene_cols = [c for c in merged.columns if c != "ModelID"]
+
+    # Long format: one row per (model, gene)
+    long_df = merged.melt(
+        id_vars="ModelID",
+        value_vars=gene_cols,
+        var_name="GENE",
+        value_name="dep_score",
+    )
+
+    long_df["dep_score"] = pd.to_numeric(long_df["dep_score"], errors="coerce")
+    long_df = long_df.dropna(subset=["dep_score"])
+
+    if long_df.empty:
+        warn(f"No finite DepMap gene-effect values for disease {disease}.")
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
+
+    agg = (
+        long_df.groupby("GENE", as_index=False)
+        .agg(
+            DepMap_mean_score=("dep_score", "mean"),
+            DepMap_min_score=("dep_score", "min"),
+            DepMap_n_models=("ModelID", "nunique"),
+        )
+    )
+
+    agg["Disease"] = disease
+    agg["DepMap_supported"] = (agg["DepMap_min_score"] <= threshold).astype(int)
+    agg["DepMap_score"] = (-agg["DepMap_min_score"]).clip(lower=0)
+    agg["DepMap_lineage_match_type"] = match_type
+
+    agg = agg[
+        [
+            "Disease",
+            "GENE",
+            "DepMap_supported",
+            "DepMap_score",
+            "DepMap_min_score",
+            "DepMap_mean_score",
+            "DepMap_n_models",
+            "DepMap_lineage_match_type",
+        ]
+    ].copy()
+
+    # Keep only supported genes for downstream use
+    agg = agg[agg["DepMap_supported"] == 1].copy()
+
+    return agg
+
+
+def load_depmap_support(
+    depmap_gene_file: str,
+    depmap_model_file: str,
+    disease_map_df: pd.DataFrame,
+    threshold: float = -0.5,
+) -> pd.DataFrame:
+    if not depmap_gene_file or not depmap_model_file:
+        warn("DepMap files not provided. Continuing with Open Targets only.")
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
+
+    if not os.path.exists(depmap_gene_file) or not os.path.exists(depmap_model_file):
+        warn("One or both DepMap files not found. Continuing with Open Targets only.")
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
+
+    gene_effect_wide = load_depmap_gene_effect(depmap_gene_file)
+    model_meta = load_depmap_model_metadata(depmap_model_file)
+
+    parts: List[pd.DataFrame] = []
+
+    for _, row in disease_map_df.iterrows():
+        if not bool(row["Cancer_like"]):
+            continue
+
+        disease = row["Disease"]
+        lineage_pattern = row["Lineage_patterns"]
+        primary_pattern = row["Primary_disease_patterns"]
+
+        log(f"[DepMap] {disease}")
+        sub = compute_depmap_support_for_disease(
+            disease=disease,
+            gene_effect_wide=gene_effect_wide,
+            model_meta=model_meta,
+            lineage_pattern=lineage_pattern,
+            primary_disease_pattern=primary_pattern,
+            threshold=threshold,
+        )
+        if not sub.empty:
+            parts.append(sub)
+
+    if not parts:
         warn("No disease-specific DepMap support identified. Continuing with Open Targets only.")
-        return pd.DataFrame(columns=["Disease", "GENE", "DepMap_supported", "DepMap_score", "DepMap_min_score"])
+        return pd.DataFrame(
+            columns=[
+                "Disease",
+                "GENE",
+                "DepMap_supported",
+                "DepMap_score",
+                "DepMap_min_score",
+                "DepMap_mean_score",
+                "DepMap_n_models",
+                "DepMap_lineage_match_type",
+            ]
+        )
 
-    return pd.concat(out_parts, ignore_index=True)
+    return pd.concat(parts, ignore_index=True)
 
 
+# ---------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build target-support gene table from Open Targets + optional DepMap.")
+    parser = argparse.ArgumentParser(
+        description="Build target-support gene table from Open Targets + DepMap."
+    )
     parser.add_argument("--out_file", required=True, help="Output TSV path.")
-    parser.add_argument("--depmap_file", default="", help="Optional local DepMap CSV file.")
+    parser.add_argument(
+        "--depmap_gene_file",
+        default="",
+        help="Path to CRISPRGeneEffectUncorrected.csv",
+    )
+    parser.add_argument(
+        "--depmap_model_file",
+        default="",
+        help="Path to Model.csv",
+    )
+    parser.add_argument(
+        "--depmap_threshold",
+        type=float,
+        default=-0.5,
+        help="Gene-effect threshold for DepMap support (default: -0.5).",
+    )
     args = parser.parse_args()
 
     ensure_parent_dir(args.out_file)
 
     disease_map_df = pd.DataFrame(
         DISEASE_MAP,
-        columns=["Disease", "Disease_label", "Cancer_like", "DepMap_lineage_keywords"],
+        columns=[
+            "Disease",
+            "Disease_label",
+            "Cancer_like",
+            "Lineage_patterns",
+            "Primary_disease_patterns",
+        ],
     )
 
-    # ----------------------------
-    # Open Targets
-    # ----------------------------
+    # --------------------------------------------------
+    # Open Targets support
+    # --------------------------------------------------
     ot_parts: List[pd.DataFrame] = []
 
     for _, row in disease_map_df.iterrows():
         disease_code = row["Disease"]
         disease_label = row["Disease_label"]
-        log(f"[OpenTargets] {disease_code}: {disease_label}")
 
+        log(f"[OpenTargets] {disease_code}: {disease_label}")
         try:
             ot = fetch_open_targets_genes(disease_label)
             if not ot.empty:
@@ -332,14 +658,19 @@ def main() -> int:
             ]
         )
 
-    # ----------------------------
-    # DepMap
-    # ----------------------------
-    dep_support = load_depmap(args.depmap_file, disease_map_df)
+    # --------------------------------------------------
+    # DepMap support
+    # --------------------------------------------------
+    dep_support = load_depmap_support(
+        depmap_gene_file=args.depmap_gene_file,
+        depmap_model_file=args.depmap_model_file,
+        disease_map_df=disease_map_df,
+        threshold=args.depmap_threshold,
+    )
 
-    # ----------------------------
+    # --------------------------------------------------
     # Merge
-    # ----------------------------
+    # --------------------------------------------------
     target_support = pd.merge(
         ot_support,
         dep_support,
@@ -355,6 +686,9 @@ def main() -> int:
         "DepMap_supported": 0,
         "DepMap_score": 0.0,
         "DepMap_min_score": float("nan"),
+        "DepMap_mean_score": float("nan"),
+        "DepMap_n_models": 0,
+        "DepMap_lineage_match_type": "",
     }
 
     for col, fill_value in defaults.items():
@@ -394,7 +728,10 @@ def main() -> int:
         .sort_values("Disease")
     )
 
-    summary_file = os.path.join(os.path.dirname(os.path.abspath(args.out_file)), "target_support_gene_table_summary.tsv")
+    summary_file = os.path.join(
+        os.path.dirname(os.path.abspath(args.out_file)),
+        "target_support_gene_table_summary.tsv",
+    )
     summary.to_csv(summary_file, sep="\t", index=False)
 
     log(f"[OK] Wrote target support table: {args.out_file}")

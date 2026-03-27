@@ -1,8 +1,10 @@
 Main Figures 
 
-Cover art:
+
 
 <img width="468" height="261" alt="image" src="https://github.com/user-attachments/assets/1f347b06-69fb-4e32-b311-86007540c61f" />
+
+Cover art
 
 
 
@@ -34,8 +36,8 @@ Fig. 4 | Integrated gene- and pathway-level relevance of latent representations 
 Fig. 5 | gVAE-derived representation recovers disease-relevant and therapeutic-target genes beyond matched-budget GWAS ranking. a, Overall gain of the selected gVAE representation over GWAS in recovery of DisGeNET disease-relevant genes, measured as the difference in the number of recovered genes under a matched SNP budget (Δ DisGeNET genes = gVAE − GWAS). Positive values indicate that the gVAE-derived SNP representation recovers more disease-relevant genes than the top-k GWAS-ranked SNPs of the same size. The largest gains were observed for T1D (+7), T2D (+6), RA (+5), HGT (+5), CD (+4) and PRC (+4), whereas negative values were observed for ALZ (-3), ASD (-2) and LDL (-2). b, Overall gain of the selected gVAE representation over GWAS in recovery of disease-relevant drug-target genes under the same matched-budget framework. Positive values again indicate improved biological prioritization by gVAE. The largest gains were observed for T1D (+6), T2D (+5), RA (+5), HGT (+4) and CD (+4), whereas ALZ (-2), ASD (-1) and LDL (-1) showed lower recovery than GWAS. c, Absolute number of recovered DisGeNET genes for GWAS and gVAE under the same matched SNP budget. Across most diseases, the gVAE-derived representation recovers more disease-associated genes than GWAS alone, with particularly strong gains in T1D, T2D, RA, HGT, CD and PRC. d, Absolute number of recovered drug-target genes for GWAS and gVAE under the same matched SNP budget. The same overall pattern is observed, showing that gVAE improves not only disease-gene recovery but also recovery of genes linked to therapeutic relevance. Together, these results show that latent-space SNP prioritization by gVAE frequently captures biologically meaningful disease structure that is not fully recovered by conventional GWAS ranking alone.
 
 
-<img width="346" height="19" alt="image" src="https://github.com/user-attachments/assets/74b8929c-1105-4854-867b-8377bd78c8bb" />
+
 <img width="468" height="301" alt="image" src="https://github.com/user-attachments/assets/103db666-a058-42e7-9734-27d61ef5e69b" />
   
 Fig. 6 | Pathway-level biological validation of latent representations reveals disease-specific mechanistic modules. Pathway enrichment analysis was used as a second layer of biological validation to test whether genes prioritized from the latent space converge on coherent biological systems implicated in disease, rather than appearing as isolated disease-associated genes. The figure summarizes the dominant pathway modules recovered for three representative diseases and illustrates the progression from latent-space structure to prioritized genes, pathway enrichment, and interpretable disease mechanisms. For Alzheimer’s disease (ALZ), the enriched programs are centered on complement activation, including initiation and classical antibody-mediated complement pathways, together with lipid-remodelling processes, Ras signaling, and vascular–neuroimmune dysfunction, consistent with known interactions among immune activation, lipid metabolism, and neurovascular regulation. For lung disease/lung cancer (LUN), the latent representation captures innate immune and inflammatory signaling, including complement-related regulation, cytokine and TNF-associated responses, NOD-like receptor signaling, lipid mediator metabolism, and extracellular-matrix invasion programs, consistent with inflammatory and tissue-remodelling mechanisms linked to tumour progression. For prostate cancer (PRC), the dominant modules involve complement–coagulation cascades, cytokine and immune signaling, and migration-related programs, including epithelial and endothelial migration, consistent with vascular remodeling, tumour invasion, and epithelial–mesenchymal transition. Together, these pathway-level patterns support that the latent variables learned by gVAE recover structured, disease-relevant biological variation spanning immune regulation, metabolism, vascular signaling, extracellular-matrix organization, and migration-associated mechanisms, rather than reflecting generic genomic compression alone.
-<img width="468" height="427" alt="image" src="https://github.com/user-attachments/assets/0b8d6cb5-2c00-4e68-8ea6-01c5544b1262" />
+

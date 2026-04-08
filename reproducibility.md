@@ -26,7 +26,7 @@ The public demo is not intended to reproduce every numeric value in the manuscri
 - how downstream analyses are launched;
 - how figures and tables are generated.
 
-## Recommended reviewer path
+## Recommended user path
 
 1. Create a synthetic cohort.
 2. Run the demo pipeline.

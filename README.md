@@ -1,6 +1,6 @@
 ## gVAE. Genomic Variational Autoencoder
 
-Public, user-friendly repository scaffold for the gVAE model.
+Public, user-friendly repository scaffold for the gVAE model. For full documentation, please see the repository **Wiki**.
 
 <img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
 

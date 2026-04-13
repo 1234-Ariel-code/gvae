@@ -1,7 +1,10 @@
 # ============================================================
-# Robustness distributions across configurations
-# comparing BaselineVAE, Best BetaVAE, and gVAE
-# Revised version: clearer separation between disease blocks
+# Main Figure:
+# a) Robustness distributions across configurations
+# with b) inset: median robustness by disease
+#
+# Supplementary Figure:
+# c) Number of configurations
 # ============================================================
 
 library(tidyverse)
@@ -12,7 +15,7 @@ library(grid)
 # ------------------------------------------------------------
 # 1. READ DATA
 # ------------------------------------------------------------
-df <- read_csv("~/Documents/qgvae_vs_others_Robustness.csv", show_col_types = FALSE)
+df <- read_csv("~/Documents/Research-Projects/gVAE/docs/qgvae_vs_others_Robustness.csv", show_col_types = FALSE)
 
 df <- df %>%
   filter(metric == "Robustness_invNoiseSens")
@@ -79,9 +82,9 @@ n_cfg_df <- df %>%
 # 5. COLORS
 # ------------------------------------------------------------
 model_colors <- c(
-  "BaselineVAE"  = "#4C78A8",
-  "BetaVAE"      = "#F58518",
-  "gVAE"         = "#54A24B"
+  "BaselineVAE" = "#4C78A8",
+  "BetaVAE"     = "#F58518",
+  "gVAE"        = "#54A24B"
 )
 
 # ------------------------------------------------------------
@@ -107,12 +110,7 @@ theme_nature <- function() {
 }
 
 # ------------------------------------------------------------
-# 7. MAIN PANEL
-#    Key changes:
-#    - smaller violin width
-#    - slightly tighter dodge
-#    - narrower boxplots
-#    - more y expansion
+# 7. MAIN PANEL A
 # ------------------------------------------------------------
 main_dodge <- 0.72
 
@@ -143,7 +141,7 @@ p_main <- ggplot(plot_df, aes(x = Robustness, y = disease, fill = Model, colour 
     inherit.aes = FALSE
   ) +
   scale_fill_manual(values = model_colors) +
-  scale_colour_manual(values = model_colors) +
+  scale_colour_manual(values = model_colors, guide = "none") +
   scale_y_discrete(expand = expansion(add = 0.55)) +
   labs(
     title = "a  Robustness distributions across configurations",
@@ -157,83 +155,140 @@ p_main <- ggplot(plot_df, aes(x = Robustness, y = disease, fill = Model, colour 
   )
 
 # ------------------------------------------------------------
-# 8. COMPANION PANEL
+# 8. INSET PANEL B
 # ------------------------------------------------------------
-p_summary <- ggplot(summary_df, aes(x = median_robustness, y = disease, colour = Model)) +
+# This inset is compact and designed to sit in the white space
+# at the top-right of panel a.
+
+p_inset <- ggplot(summary_df, aes(x = median_robustness, y = disease, colour = Model)) +
   geom_point(
-    size = 2.8,
-    position = position_dodge(width = 0.42)
+    size = 2.0,
+    position = position_dodge(width = 0.42),
+    alpha = 0.95
   ) +
   scale_colour_manual(values = model_colors) +
-  scale_y_discrete(expand = expansion(add = 0.55)) +
+  scale_y_discrete(expand = expansion(add = 0.25)) +
   labs(
-    title = "b  Median robustness by disease",
-    x = "Median robustness",
+    title = "b  Median robustness",
+    x = "Median",
     y = NULL
   ) +
-  theme_nature() +
+  theme_minimal(base_size = 10, base_family = "sans") +
   theme(
-    legend.position = "none",
+    panel.grid.minor = element_blank(),
+    panel.grid.major.y = element_blank(),
+    panel.grid.major.x = element_line(colour = "grey90", linewidth = 0.3),
+    axis.line = element_line(colour = "black", linewidth = 0.35),
+    axis.text.x = element_text(colour = "black", size = 8.5),
     axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
+    axis.ticks.y = element_blank(),
+    axis.title.x = element_text(colour = "black", size = 9.5, face = "bold"),
+    axis.title.y = element_blank(),
+    plot.title = element_text(size = 11, face = "bold", hjust = 0),
+    legend.position = "none",
+    plot.background = element_rect(fill = "white", colour = "grey60", linewidth = 0.4),
+    panel.background = element_rect(fill = "white", colour = NA),
+    plot.margin = margin(6, 6, 6, 6)
   )
 
 # ------------------------------------------------------------
-# 9. CONFIGURATION COUNT PANEL
+# 9. MAIN FIGURE WITH INSET
 # ------------------------------------------------------------
-p_ncfg <- ggplot(n_cfg_df, aes(x = n_configs, y = disease)) +
-  geom_col(width = 0.48, fill = "grey35") +
-  geom_text(aes(label = n_configs), hjust = -0.18, size = 3.2) +
+main_figure <- p_main +
+  inset_element(
+    p_inset,
+    left   = 0.64,
+    bottom = 0.64,
+    right  = 0.97,
+    top    = 1.00,
+    align_to = "panel"
+  )
+
+print(main_figure)
+
+# ------------------------------------------------------------
+# 10. SUPPLEMENTARY FIGURE C
+# ------------------------------------------------------------
+p_supp_c <- ggplot(n_cfg_df, aes(x = n_configs, y = disease)) +
+  geom_col(width = 0.52, fill = "grey35") +
+  geom_text(aes(label = n_configs), hjust = -0.18, size = 3.5) +
   scale_x_continuous(expand = expansion(mult = c(0, 0.12))) +
-  scale_y_discrete(expand = expansion(add = 0.55)) +
+  scale_y_discrete(expand = expansion(add = 0.45)) +
   labs(
-    title = "c  Number of configurations",
+    title = "Number of evaluated configurations across diseases",
+    subtitle = "Number of valid model configurations included in the robustness distribution analysis for each disease",
     x = "Configurations",
     y = NULL
   ) +
   theme_nature() +
   theme(
-    legend.position = "none",
-    axis.text.y = element_blank(),
-    axis.ticks.y = element_blank()
+    legend.position = "none"
   )
 
-# ------------------------------------------------------------
-# 10. COMBINE
-# ------------------------------------------------------------
-final_plot <- p_main / (p_summary | p_ncfg) +
-  plot_layout(heights = c(4.4, 1.35), guides = "collect") &
-  theme(legend.position = "top")
-
-print(final_plot)
+print(p_supp_c)
 
 # ------------------------------------------------------------
-# 11. SAVE
-#    Much taller figure for clearer disease separation
+# 11. SAVE MAIN FIGURE
 # ------------------------------------------------------------
 ggsave(
-  filename = "Robustness_distributions_across_configurations.pdf",
-  plot = final_plot,
+  filename = "Figure_Robustness_main_with_inset.pdf",
+  plot = main_figure,
   width = 15,
-  height = 17,
-  units = "in"
+  height = 13.5,
+  units = "in",
+  dpi = 600,
+  device = cairo_pdf
 )
 
 ggsave(
-  filename = "Robustness_distributions_across_configurations.png",
-  plot = final_plot,
+  filename = "Figure_Robustness_main_with_inset.png",
+  plot = main_figure,
   width = 15,
-  height = 17,
+  height = 13.5,
   units = "in",
   dpi = 600,
   bg = "white"
 )
 
 ggsave(
-  filename = "Robustness_distributions_across_configurations.tiff",
-  plot = final_plot,
+  filename = "Figure_Robustness_main_with_inset.tiff",
+  plot = main_figure,
   width = 15,
-  height = 17,
+  height = 13.5,
+  units = "in",
+  dpi = 600,
+  compression = "lzw",
+  bg = "white"
+)
+
+# ------------------------------------------------------------
+# 12. SAVE SUPPLEMENTARY FIGURE C
+# ------------------------------------------------------------
+ggsave(
+  filename = "Supplementary_Figure_Number_of_Configurations.pdf",
+  plot = p_supp_c,
+  width = 8.5,
+  height = 7.8,
+  units = "in",
+  dpi = 600,
+  device = cairo_pdf
+)
+
+ggsave(
+  filename = "Supplementary_Figure_Number_of_Configurations.png",
+  plot = p_supp_c,
+  width = 8.5,
+  height = 7.8,
+  units = "in",
+  dpi = 600,
+  bg = "white"
+)
+
+ggsave(
+  filename = "Supplementary_Figure_Number_of_Configurations.tiff",
+  plot = p_supp_c,
+  width = 8.5,
+  height = 7.8,
   units = "in",
   dpi = 600,
   compression = "lzw",

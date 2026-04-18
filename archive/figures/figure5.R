@@ -1,7 +1,15 @@
 #!/usr/bin/env Rscript
 
 # ============================================================
-# Flat latent-folder version for ARC/local use
+# Dynamic empirical SNP-importance construction against GWAS
+# UPDATED FOR GWAS TSV SUMMARY FILES:
+#   <DISEASE>_<ontology>_associations_export.tsv
+#
+# Example:
+#   ALZ_MONDO_0004975_associations_export.tsv
+#
+# Expected GWAS columns include:
+#   riskAllele, pValue, mappedGenes, traitName, ...
 # ============================================================
 
 # ------------------------------------------------------------
@@ -79,7 +87,7 @@ if (MODE == "cluster") {
   out_dir_default       <- "/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/_dynamic_gwas_comparison"
 } else {
   latent_root_default   <- "~/Documents"
-  gwas_root_default     <- "~/Documents"
+  gwas_root_default     <- "~/Documents/GWAS-summary"
   bim_root_default      <- "~/Documents"
   cs2g_file_default     <- "~/Documents/combined_cS2G.tsv"
   disgenet_file_default <- "~/Documents/consolidated.tsv"
@@ -154,13 +162,13 @@ extract_disease_from_latent <- function(path) {
 
 extract_config_from_latent <- function(path) {
   nm <- basename(path)
-  cfg <- stringr::str_extract(nm, "LD[0-9]+_NS[0-9]+_L[0-9]+")
-  cfg
+  stringr::str_extract(nm, "LD[0-9]+_NS[0-9]+_L[0-9]+")
 }
 
 extract_disease_from_gwas <- function(path) {
   nm <- basename(path)
-  sub("^([A-Za-z0-9]+)_gwas\\.(assoc|qassoc)$", "\\1", nm)
+  # Example: ALZ_MONDO_0004975_associations_export.tsv -> ALZ
+  sub("^([A-Za-z0-9]+)_.+_associations_export\\.tsv$", "\\1", nm)
 }
 
 read_latent <- function(path) {
@@ -183,80 +191,83 @@ read_latent <- function(path) {
     distinct(Disease, Config, LV, SNP, GENE, Sample, .keep_all = TRUE)
 }
 
-read_gwas_robust <- function(path) {
-  df <- read.table(
-    path,
-    header = TRUE,
-    stringsAsFactors = FALSE,
-    sep = "",
-    check.names = FALSE,
-    fill = TRUE,
-    comment.char = ""
-  ) %>%
-    as_tibble()
+clean_risk_allele_to_rsid <- function(x) {
+  x <- as.character(x)
+  x <- trimws(x)
+
+  # keep plain rsID if present at beginning, strip allele suffixes like rs12345-A
+  rs <- stringr::str_extract(x, "^rs[0-9]+")
+  rs
+}
+
+split_mapped_genes <- function(x) {
+  if (is.na(x) || x == "" || x == "-") return(character(0))
+  x %>%
+    as.character() %>%
+    strsplit(",|;") %>%
+    unlist(use.names = FALSE) %>%
+    trimws() %>%
+    toupper() %>%
+    .[. != "" & . != "-" & . != "NR"] %>%
+    unique()
+}
+
+read_gwas_summary_tsv <- function(path) {
+  df <- readr::read_tsv(path, show_col_types = FALSE)
 
   names(df) <- trimws(names(df))
 
-  if (!"SNP" %in% names(df)) stop("GWAS file missing SNP column: ", basename(path))
-  if (!"P" %in% names(df)) stop("GWAS file missing P column: ", basename(path))
-
-  if (!"BP" %in% names(df)) {
-    df <- df %>%
-      mutate(BP = suppressWarnings(as.numeric(stringr::str_extract(SNP, "(?<=chr[0-9XYM]+_)[0-9]+"))))
-  }
-
-  if (!"CHR" %in% names(df)) {
-    df <- df %>%
-      mutate(CHR = stringr::str_extract(SNP, "(?<=chr)[0-9XYM]+"))
-  }
-
-  df %>%
-    mutate(
-      SNP = as.character(SNP),
-      CHR = as.character(CHR),
-      BP  = suppressWarnings(as.numeric(BP)),
-      P   = suppressWarnings(as.numeric(P))
+  required_cols <- c("riskAllele", "pValue")
+  missing_cols <- setdiff(required_cols, names(df))
+  if (length(missing_cols) > 0) {
+    stop(
+      "GWAS summary file missing required columns in ",
+      basename(path), ": ",
+      paste(missing_cols, collapse = ", ")
     )
-}
+  }
 
-load_bim_lookup_for_disease <- function(bim_root, disease) {
-  bim_path <- file.path(bim_root, paste0(disease, ".bim"))
-  if (!file.exists(bim_path)) return(NULL)
+  mapped_col <- if ("mappedGenes" %in% names(df)) "mappedGenes" else NA_character_
+  trait_col  <- if ("traitName" %in% names(df)) "traitName" else NA_character_
 
-  read.table(bim_path, header = FALSE, stringsAsFactors = FALSE) %>%
-    as_tibble() %>%
+  out <- df %>%
     transmute(
-      CHR = as.character(V1),
-      RSID = as.character(V2),
-      BP = as.numeric(V4)
+      raw_riskAllele = as.character(riskAllele),
+      rsid = clean_risk_allele_to_rsid(riskAllele),
+      P = suppressWarnings(as.numeric(pValue)),
+      mappedGenes_raw = if (!is.na(mapped_col)) as.character(.data[[mapped_col]]) else NA_character_,
+      traitName = if (!is.na(trait_col)) as.character(.data[[trait_col]]) else NA_character_
     ) %>%
-    filter(!is.na(CHR), !is.na(BP), !is.na(RSID), RSID != "") %>%
-    distinct(CHR, BP, .keep_all = TRUE)
+    filter(!is.na(P), !is.na(rsid), rsid != "") %>%
+    distinct(rsid, .keep_all = TRUE) %>%
+    arrange(P)
+
+  out
 }
 
-resolve_gwas_snp_to_rsid <- function(gwas_df, bim_lookup = NULL) {
-  out <- gwas_df %>%
-    mutate(
-      SNP = as.character(SNP),
-      rsid = ifelse(grepl("^rs", SNP, ignore.case = TRUE), SNP, NA_character_)
-    )
+get_gwas_genes_from_ranked_table <- function(gwas_ranked_tbl, k, cs2g_tbl = NULL) {
+  if (nrow(gwas_ranked_tbl) == 0 || k < 1) return(character(0))
 
-  if (!is.null(bim_lookup)) {
-    need_map <- out %>% filter(is.na(rsid), !is.na(CHR), !is.na(BP))
-    if (nrow(need_map) > 0) {
-      mapped <- need_map %>%
-        left_join(bim_lookup, by = c("CHR", "BP")) %>%
-        mutate(rsid = RSID) %>%
-        select(-RSID)
+  top_tbl <- gwas_ranked_tbl %>%
+    slice(seq_len(min(k, nrow(gwas_ranked_tbl))))
 
-      out <- out %>%
-        filter(!is.na(rsid)) %>%
-        bind_rows(mapped)
-    }
+  genes_from_mapped <- map(top_tbl$mappedGenes_raw, split_mapped_genes) %>%
+    unlist(use.names = FALSE) %>%
+    unique()
+
+  if (length(genes_from_mapped) > 0) {
+    return(genes_from_mapped)
   }
 
-  out %>%
-    mutate(rsid = ifelse(grepl("^rs", rsid, ignore.case = TRUE), rsid, NA_character_))
+  if (!is.null(cs2g_tbl)) {
+    genes_from_cs2g <- cs2g_tbl %>%
+      filter(SNP %in% top_tbl$rsid) %>%
+      pull(GENE) %>%
+      unique()
+    return(genes_from_cs2g)
+  }
+
+  character(0)
 }
 
 score_gene_set <- function(genes, gene_set_tbl, disease) {
@@ -268,23 +279,23 @@ score_gene_set <- function(genes, gene_set_tbl, disease) {
   sum(unique(genes) %in% ref)
 }
 
-evaluate_candidate <- function(current_snps, candidate_snp, gwas_ranked_snps, disease,
+evaluate_candidate <- function(current_snps, candidate_snp, gwas_ranked_tbl, disease,
                                cs2g_tbl, disgenet_tbl, drug_tbl) {
   new_set <- unique(c(current_snps, candidate_snp))
   k <- length(new_set)
 
-  gwas_set <- gwas_ranked_snps[seq_len(min(k, length(gwas_ranked_snps)))]
-  if (length(gwas_set) < k) return(NULL)
+  if (nrow(gwas_ranked_tbl) < k) return(NULL)
 
   lv_genes <- cs2g_tbl %>%
     filter(SNP %in% new_set) %>%
     pull(GENE) %>%
     unique()
 
-  gwas_genes <- cs2g_tbl %>%
-    filter(SNP %in% gwas_set) %>%
-    pull(GENE) %>%
-    unique()
+  gwas_genes <- get_gwas_genes_from_ranked_table(
+    gwas_ranked_tbl = gwas_ranked_tbl,
+    k = k,
+    cs2g_tbl = cs2g_tbl
+  )
 
   lv_dis   <- score_gene_set(lv_genes, disgenet_tbl, disease)
   gwas_dis <- score_gene_set(gwas_genes, disgenet_tbl, disease)
@@ -314,12 +325,12 @@ evaluate_candidate <- function(current_snps, candidate_snp, gwas_ranked_snps, di
   )
 }
 
-greedy_select_lv <- function(candidate_snps, gwas_ranked_snps, disease, lv,
+greedy_select_lv <- function(candidate_snps, gwas_ranked_tbl, disease, lv,
                              cs2g_tbl, disgenet_tbl, drug_tbl, max_k) {
   selected <- character(0)
   path <- list()
 
-  max_k <- min(max_k, length(candidate_snps), length(gwas_ranked_snps))
+  max_k <- min(max_k, length(candidate_snps), nrow(gwas_ranked_tbl))
   if (max_k < 1) return(NULL)
 
   remaining <- candidate_snps
@@ -330,7 +341,7 @@ greedy_select_lv <- function(candidate_snps, gwas_ranked_snps, disease, lv,
       ~ evaluate_candidate(
         current_snps = selected,
         candidate_snp = .x,
-        gwas_ranked_snps = gwas_ranked_snps,
+        gwas_ranked_tbl = gwas_ranked_tbl,
         disease = disease,
         cs2g_tbl = cs2g_tbl,
         disgenet_tbl = disgenet_tbl,
@@ -456,13 +467,19 @@ if (file.exists(drug_target_file)) {
 # 9. LOAD LATENT + GWAS FILES
 # ------------------------------------------------------------
 latent_files <- find_latent_files(latent_root)
-gwas_files <- list.files(gwas_root, pattern = "(_gwas\\.(assoc|qassoc))$", full.names = TRUE)
+gwas_files <- list.files(
+  gwas_root,
+  pattern = "_associations_export\\.tsv$",
+  full.names = TRUE
+)
 
 if (length(latent_files) == 0) stop("No latent_gene_table files found under: ", latent_root)
-if (length(gwas_files) == 0) stop("No *_gwas.assoc or *_gwas.qassoc files found under: ", gwas_root)
+if (length(gwas_files) == 0) stop("No *_associations_export.tsv files found under: ", gwas_root)
 
 message("Found ", length(latent_files), " latent files")
-message("Found ", length(gwas_files), " GWAS files")
+message("Found ", length(gwas_files), " GWAS summary TSV files")
+message("GWAS files found:")
+print(gwas_files)
 
 latent_all <- map_dfr(latent_files, read_latent)
 
@@ -470,6 +487,12 @@ gwas_tbl <- tibble(
   Disease = map_chr(gwas_files, extract_disease_from_gwas),
   gwas_file = gwas_files
 )
+
+message("Diseases in latent_all:")
+print(sort(unique(latent_all$Disease)))
+
+message("Diseases in gwas_tbl:")
+print(sort(unique(gwas_tbl$Disease)))
 
 # ------------------------------------------------------------
 # 10. RUN DISEASE LOOP
@@ -481,6 +504,8 @@ skip_rows <- list()
 diag_rows <- list()
 
 diseases_common <- intersect(unique(latent_all$Disease), gwas_tbl$Disease)
+message("Common diseases:")
+print(sort(diseases_common))
 
 for (d in diseases_common) {
   message("Processing disease: ", d)
@@ -497,32 +522,24 @@ for (d in diseases_common) {
     next
   }
 
-  bim_lookup_d <- load_bim_lookup_for_disease(bim_root, d)
-
   gwas_d <- tryCatch(
     {
-      read_gwas_robust(gwas_file_d) %>%
-        resolve_gwas_snp_to_rsid(bim_lookup_d) %>%
-        filter(!is.na(P), !is.na(rsid)) %>%
-        arrange(P) %>%
-        distinct(rsid, .keep_all = TRUE)
+      read_gwas_summary_tsv(gwas_file_d)
     },
     error = function(e) {
-      warning("Skipping disease ", d, " because GWAS parsing failed: ", e$message)
+      warning("Skipping disease ", d, " because GWAS TSV parsing failed: ", e$message)
       return(NULL)
     }
   )
 
   if (is.null(gwas_d) || nrow(gwas_d) < 1) {
-    skip_rows[[d]] <- tibble(Disease = d, reason = "No usable GWAS SNPs after BIM mapping")
+    skip_rows[[d]] <- tibble(Disease = d, reason = "No usable GWAS SNPs in summary TSV")
     next
   }
 
-  gwas_ranked_snps <- gwas_d %>% pull(rsid) %>% unique()
-
   lv_levels <- lat_d %>%
-    distinct(LV, LV_num) %>%
-    arrange(LV_num) %>%
+    distinct(LV) %>%
+    arrange(as.numeric(gsub("LV", "", LV))) %>%
     pull(LV)
 
   disease_selected_union <- character(0)
@@ -540,7 +557,7 @@ for (d in diseases_common) {
 
     path_df <- greedy_select_lv(
       candidate_snps = lv_candidates,
-      gwas_ranked_snps = gwas_ranked_snps,
+      gwas_ranked_tbl = gwas_d,
       disease = d,
       lv = lv,
       cs2g_tbl = cs2g,
@@ -600,8 +617,7 @@ for (d in diseases_common) {
     next
   }
 
-  gwas_top_snps <- gwas_ranked_snps[seq_len(min(K_union, length(gwas_ranked_snps)))]
-  K_final <- length(gwas_top_snps)
+  K_final <- min(K_union, nrow(gwas_d))
 
   if (K_final < 1) {
     skip_rows[[d]] <- tibble(Disease = d, reason = "Matched GWAS budget is zero")
@@ -609,17 +625,18 @@ for (d in diseases_common) {
   }
 
   repr_final_snps <- disease_selected_union[seq_len(min(K_final, length(disease_selected_union)))]
-  K_final <- length(repr_final_snps)
+  gwas_top_tbl <- gwas_d %>% slice(seq_len(K_final))
 
   repr_genes <- cs2g %>%
     filter(SNP %in% repr_final_snps) %>%
     pull(GENE) %>%
     unique()
 
-  gwas_genes <- cs2g %>%
-    filter(SNP %in% gwas_top_snps[seq_len(K_final)]) %>%
-    pull(GENE) %>%
-    unique()
+  gwas_genes <- get_gwas_genes_from_ranked_table(
+    gwas_ranked_tbl = gwas_top_tbl,
+    k = K_final,
+    cs2g_tbl = cs2g
+  )
 
   repr_dis_count  <- score_gene_set(repr_genes, disgenet_sets, d)
   gwas_dis_count  <- score_gene_set(gwas_genes, disgenet_sets, d)
@@ -645,8 +662,9 @@ for (d in diseases_common) {
     n_lvs = n_distinct(lat_d$LV),
     max_k_per_lv = MAX_K_PER_LV,
     representation_union_size = length(disease_selected_union),
-    gwas_mappable_snp_count = length(gwas_ranked_snps),
-    final_matched_budget = K_final
+    gwas_ranked_snp_count = nrow(gwas_d),
+    final_matched_budget = K_final,
+    gwas_trait_name = paste(unique(na.omit(gwas_d$traitName)), collapse = " | ")
   )
 }
 
@@ -763,7 +781,7 @@ p_main_a <- overall_df %>%
   scale_x_continuous(expand = expansion(mult = c(0.08, 0.12))) +
   labs(
     title = "a  Overall gain over GWAS in disease-relevant gene recovery",
-    subtitle = "Representation is built dynamically by selecting SNPs that most improve matched-budget recovery over GWAS.",
+    subtitle = "Per-LV vs GWAS with equal SNP budgets.",
     x = "Δ DisGeNET genes",
     y = "Disease"
   ) +
@@ -806,7 +824,7 @@ p_main_c <- abs_long %>%
   scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
   labs(
     title = "c  Absolute disease-relevant gene recovery",
-    subtitle = "Counts of DisGeNET genes recovered by GWAS and by the dynamically selected representation.",
+    subtitle = "Counts of DisGeNET genes recovered by each method.",
     x = "Recovered DisGeNET genes",
     y = "Disease"
   ) +
@@ -820,7 +838,7 @@ p_main_d <- abs_long %>%
   scale_x_continuous(expand = expansion(mult = c(0, 0.08))) +
   labs(
     title = glue("d  Absolute {drug_label} gene recovery"),
-    subtitle = glue("Counts of {drug_label} genes recovered by GWAS and by the dynamically selected representation."),
+    subtitle = glue("Counts of {drug_label} genes recovered by each method."),
     x = glue("Recovered {drug_label} genes"),
     y = NULL
   ) +
@@ -853,7 +871,7 @@ p_supp_a <- ggplot(supp_df, aes(x = LV, y = Disease, fill = max_delta_DisGeNET))
   ) +
   labs(
     title = "a  Best per-LV gain over GWAS in disease-relevant recovery",
-    subtitle = "Each cell shows the strongest gain achieved by an LV during dynamic SNP selection.",
+    subtitle = "Each cell shows the strongest gain achieved by an LV.",
     x = "Latent variable",
     y = "Disease"
   ) +
@@ -864,8 +882,8 @@ p_supp_b <- ggplot(supp_df, aes(x = LV, y = Disease, fill = best_k_DisGeNET)) +
   geom_text(aes(label = best_k_DisGeNET), size = 2.9, fontface = "bold") +
   scale_fill_viridis_c(option = "C", name = expression(k^"*")) +
   labs(
-    title = "b  Optimal selected SNP budget per LV",
-    subtitle = "The selected budget is the point where each LV most outperforms GWAS in DisGeNET recovery.",
+    title = "b  SNP budget per LV",
+    subtitle = "The budget is the point where each LV most outperforms GWAS in DisGeNET recovery.",
     x = "Latent variable",
     y = NULL
   ) +
@@ -888,7 +906,7 @@ p_supp_c <- ggplot(supp_df, aes(x = LV, y = Disease, fill = max_delta_Drug)) +
   ) +
   labs(
     title = glue("c  Best per-LV gain over GWAS in {drug_label} recovery"),
-    subtitle = "Each cell shows the strongest gain achieved by an LV during dynamic SNP selection.",
+    subtitle = "Each cell shows the strongest gain achieved by an LV.",
     x = "Latent variable",
     y = "Disease"
   ) +
@@ -909,9 +927,12 @@ plot_df_d <- summary_supp %>%
     )
   )
 
+fill_vals_supp_d <- c("DisGeNET" = "#666666")
+fill_vals_supp_d[drug_label] <- "#54A24B"
+
 p_supp_d <- ggplot(plot_df_d, aes(x = Fraction, y = Disease, fill = Metric)) +
   geom_col(position = position_dodge(width = 0.75), width = 0.68) +
-  scale_fill_manual(values = c("DisGeNET" = "#666666", !!drug_label := "#54A24B")) +
+  scale_fill_manual(values = fill_vals_supp_d) +
   scale_x_continuous(
     limits = c(0, 1.05),
     breaks = seq(0, 1, 0.25),

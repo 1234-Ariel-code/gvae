@@ -15,7 +15,7 @@ Fig. 1 | Overview of the Genomic Variational Autoencoder (gVAE) framework. (A) G
 
 
 
-<img width="468" height="421" alt="image" src="https://github.com/user-attachments/assets/cc11dcae-fb49-4a40-ade0-b8e76e8ed5cd" />
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/cc11dcae-fb49-4a40-ade0-b8e76e8ed5cd" />
 
 Fig. 2 | gVAE yields substantially more stable latent representations across diseases and model configurations. a, Robustness distributions across diseases for Vanilla VAE, -VAE, and gVAE, summarizing all evaluated configurations within each disease. Robustness was defined from the inverse relative change in latent representations after controlled SNP-wise perturbation, such that higher values indicate greater stability. Across nearly all diseases, the robustness distribution of gVAE is shifted toward higher values relative to both comparators, indicating that gVAE more frequently identifies highly stable latent configurations. The largest gains are observed in PRC, BRC, LUN, HGT, EOS, and LDL, where gVAE extends to markedly higher robustness values than Vanilla VAE and -VAE. b, Disease-wise median robustness across all evaluated configurations for the three models. gVAE consistently attains the highest median robustness, with the strongest median advantages observed in LUN, EOS, PRC, and BRC. Together, these results show that quantile-gated multi-sample aggregation confers a broad and reproducible stability advantage in high-dimensional genomic representation learning.
 
@@ -27,7 +27,7 @@ Fig. 3 | gVAE preserves reconstruction fidelity and disease-discriminative infor
 
  
 
-<img width="468" height="471" alt="image" src="https://github.com/user-attachments/assets/38afad9b-df32-4f32-a95e-d79f537e4025" />
+<img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/38afad9b-df32-4f32-a95e-d79f537e4025" />
 
 Fig. 4 | Integrated gene- and pathway-level relevance of latent representations across diseases.  a, Heatmap of disease-relevant DisGeNET gene capture across latent variables, where cell color denotes the disease-relevance score and numbers indicate the count of matched disease-relevant genes. b, Total number of disease-relevant genes captured by each latent variable across diseases. c, Total number of disease-relevant genes captured within each disease. d, Heatmap of disease-relevant pathway capture across diseases, where cell color denotes the pathway-relevance score and numbers indicate the number of configurations in which each disease–pathway association was recovered. e, Total number of disease-relevant pathway recoveries per pathway across diseases. f, Total number of disease-relevant pathway recoveries per disease. 
 

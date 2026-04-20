@@ -15,7 +15,7 @@ Fig. 1 | Overview of the Genomic Variational Autoencoder (gVAE) framework. (A) G
 
 
 
-<img width="1276" height="668" alt="image" src="https://github.com/user-attachments/assets/cc11dcae-fb49-4a40-ade0-b8e76e8ed5cd" />
+<img width="976" height="768" alt="image" src="https://github.com/user-attachments/assets/cc11dcae-fb49-4a40-ade0-b8e76e8ed5cd" />
 
 Fig. 2 | gVAE yields substantially more stable latent representations across diseases and model configurations. a, Robustness distributions across diseases for Vanilla VAE, -VAE, and gVAE, summarizing all evaluated configurations within each disease. Robustness was defined from the inverse relative change in latent representations after controlled SNP-wise perturbation, such that higher values indicate greater stability. Across nearly all diseases, the robustness distribution of gVAE is shifted toward higher values relative to both comparators, indicating that gVAE more frequently identifies highly stable latent configurations. The largest gains are observed in PRC, BRC, LUN, HGT, EOS, and LDL, where gVAE extends to markedly higher robustness values than Vanilla VAE and -VAE. b, Disease-wise median robustness across all evaluated configurations for the three models. gVAE consistently attains the highest median robustness, with the strongest median advantages observed in LUN, EOS, PRC, and BRC. Together, these results show that quantile-gated multi-sample aggregation confers a broad and reproducible stability advantage in high-dimensional genomic representation learning.
 

@@ -33,7 +33,7 @@ Fig. 4 | Integrated gene- and pathway-level relevance of latent representations 
 
 
 
-<img width="10320" height="6840" alt="Figure_DynamicRepresentation_vs_GWAS_professional" src="https://github.com/user-attachments/assets/59d89d2b-35c8-43e1-9b9f-3fb9f36b1c4c" />
+<img width="1032" height="684" alt="Figure_DynamicRepresentation_vs_GWAS_professional" src="https://github.com/user-attachments/assets/59d89d2b-35c8-43e1-9b9f-3fb9f36b1c4c" />
 
 Fig. 5 | gVAE-derived representation recovers disease-relevant and therapeutic-target genes beyond matched-budget GWAS ranking. a, Overall gain of the selected gVAE representation over GWAS in recovery of DisGeNET disease-relevant genes, measured as the difference in the number of recovered genes under a matched SNP budget (Δ DisGeNET genes = gVAE − GWAS). b, Overall gain of the selected gVAE representation over GWAS in recovery of disease-relevant drug-target genes under the same matched-budget framework. c, Absolute number of recovered DisGeNET genes for GWAS and gVAE under the same matched SNP budget. d, Absolute number of recovered drug-target genes for GWAS and gVAE under the same matched SNP budget. The same overall pattern is observed, showing that gVAE improves not only disease-gene recovery but also recovery of genes linked to therapeutic relevance. Together, these results show that latent-space SNP prioritization by gVAE frequently captures biologically meaningful disease structure that is not fully recovered by conventional GWAS ranking alone.
 

@@ -10,6 +10,13 @@
 #
 # Expected GWAS columns include:
 #   riskAllele, pValue, mappedGenes, traitName, ...
+#
+# FINAL VERSION:
+# - real matched-budget gVAE vs GWAS comparison
+# - real per-LV supplementary panels
+# - real SNP-overlap panels (e, f)
+# - PDF outputs only
+# - CSV exports for reproducibility
 # ============================================================
 
 # ------------------------------------------------------------
@@ -25,7 +32,8 @@ required_pkgs <- c(
   "tibble",
   "patchwork",
   "scales",
-  "glue"
+  "glue",
+  "viridis"
 )
 
 missing_pkgs <- required_pkgs[!vapply(required_pkgs, requireNamespace, logical(1), quietly = TRUE)]
@@ -50,6 +58,7 @@ suppressPackageStartupMessages({
   library(patchwork)
   library(scales)
   library(glue)
+  library(viridis)
 })
 
 # ------------------------------------------------------------
@@ -79,7 +88,7 @@ out_dir_arg       <- get_arg_value("--out_dir", NULL)
 # ------------------------------------------------------------
 if (MODE == "cluster") {
   latent_root_default   <- "/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/latent"
-  gwas_root_default     <- "/work/long_lab/for_Ariel/gwas_results"
+  gwas_root_default     <- "/work/long_lab/for_Ariel/GWAS-summary"
   bim_root_default      <- "/work/long_lab/for_Ariel/files"
   cs2g_file_default     <- "/work/long_lab/for_Ariel/files/combined_cS2G.tsv"
   disgenet_file_default <- "/work/long_lab/for_Ariel/files/consolidated.tsv"
@@ -167,7 +176,6 @@ extract_config_from_latent <- function(path) {
 
 extract_disease_from_gwas <- function(path) {
   nm <- basename(path)
-  # Example: ALZ_MONDO_0004975_associations_export.tsv -> ALZ
   sub("^([A-Za-z0-9]+)_.+_associations_export\\.tsv$", "\\1", nm)
 }
 
@@ -194,10 +202,7 @@ read_latent <- function(path) {
 clean_risk_allele_to_rsid <- function(x) {
   x <- as.character(x)
   x <- trimws(x)
-
-  # keep plain rsID if present at beginning, strip allele suffixes like rs12345-A
-  rs <- stringr::str_extract(x, "^rs[0-9]+")
-  rs
+  stringr::str_extract(x, "^rs[0-9]+")
 }
 
 split_mapped_genes <- function(x) {
@@ -214,7 +219,6 @@ split_mapped_genes <- function(x) {
 
 read_gwas_summary_tsv <- function(path) {
   df <- readr::read_tsv(path, show_col_types = FALSE)
-
   names(df) <- trimws(names(df))
 
   required_cols <- c("riskAllele", "pValue")
@@ -230,7 +234,7 @@ read_gwas_summary_tsv <- function(path) {
   mapped_col <- if ("mappedGenes" %in% names(df)) "mappedGenes" else NA_character_
   trait_col  <- if ("traitName" %in% names(df)) "traitName" else NA_character_
 
-  out <- df %>%
+  df %>%
     transmute(
       raw_riskAllele = as.character(riskAllele),
       rsid = clean_risk_allele_to_rsid(riskAllele),
@@ -241,8 +245,6 @@ read_gwas_summary_tsv <- function(path) {
     filter(!is.na(P), !is.na(rsid), rsid != "") %>%
     distinct(rsid, .keep_all = TRUE) %>%
     arrange(P)
-
-  out
 }
 
 get_gwas_genes_from_ranked_table <- function(gwas_ranked_tbl, k, cs2g_tbl = NULL) {
@@ -260,11 +262,12 @@ get_gwas_genes_from_ranked_table <- function(gwas_ranked_tbl, k, cs2g_tbl = NULL
   }
 
   if (!is.null(cs2g_tbl)) {
-    genes_from_cs2g <- cs2g_tbl %>%
-      filter(SNP %in% top_tbl$rsid) %>%
-      pull(GENE) %>%
-      unique()
-    return(genes_from_cs2g)
+    return(
+      cs2g_tbl %>%
+        filter(SNP %in% top_tbl$rsid) %>%
+        pull(GENE) %>%
+        unique()
+    )
   }
 
   character(0)
@@ -500,6 +503,7 @@ print(sort(unique(gwas_tbl$Disease)))
 importance_rows <- list()
 overall_rows <- list()
 supp_rows <- list()
+overlap_rows <- list()
 skip_rows <- list()
 diag_rows <- list()
 
@@ -597,6 +601,35 @@ for (d in diseases_common) {
       best_k_Drug = best_dis$k
     )
 
+    # --------------------------------------------------------
+    # Real overlap at matched k*
+    # --------------------------------------------------------
+    k_star <- as.integer(best_dis$k)
+
+    lv_selected_at_k <- path_df %>%
+      arrange(step) %>%
+      slice(seq_len(min(k_star, n()))) %>%
+      pull(selected_SNP) %>%
+      unique()
+
+    gwas_top_at_k <- gwas_d %>%
+      slice(seq_len(min(k_star, nrow(gwas_d)))) %>%
+      pull(rsid) %>%
+      unique()
+
+    overlap_n <- length(intersect(lv_selected_at_k, gwas_top_at_k))
+    overlap_pct <- if (k_star > 0) 100 * overlap_n / k_star else 0
+
+    overlap_rows[[paste(d, lv, sep = "_")]] <- tibble(
+      Disease = d,
+      LV = lv,
+      overlap_k = k_star,
+      gvae_set_size = length(lv_selected_at_k),
+      gwas_set_size = length(gwas_top_at_k),
+      overlap_n = overlap_n,
+      overlap_pct = overlap_pct
+    )
+
     lv_selected_snps <- imp_df %>%
       arrange(step) %>%
       pull(selected_SNP) %>%
@@ -671,6 +704,7 @@ for (d in diseases_common) {
 importance_df <- bind_rows(importance_rows)
 overall_df    <- bind_rows(overall_rows)
 supp_df       <- bind_rows(supp_rows)
+overlap_df    <- bind_rows(overlap_rows)
 skip_df       <- bind_rows(skip_rows)
 diag_df       <- bind_rows(diag_rows)
 
@@ -695,6 +729,7 @@ overall_df <- overall_df %>%
   mutate(Disease = factor(Disease, levels = disease_order))
 
 supp_df <- supp_df %>%
+  left_join(overlap_df, by = c("Disease", "LV")) %>%
   mutate(
     Disease = factor(Disease, levels = disease_order),
     LV = factor(LV, levels = lv_order)
@@ -703,8 +738,10 @@ supp_df <- supp_df %>%
 summary_supp <- supp_df %>%
   group_by(Disease) %>%
   summarise(
-    prop_better_dis = mean(max_delta_DisGeNET > 0, na.rm = TRUE),
+    prop_better_dis  = mean(max_delta_DisGeNET > 0, na.rm = TRUE),
     prop_better_drug = mean(max_delta_Drug > 0, na.rm = TRUE),
+    mean_overlap_pct = mean(overlap_pct, na.rm = TRUE),
+    mean_overlap_n   = mean(overlap_n, na.rm = TRUE),
     .groups = "drop"
   ) %>%
   mutate(Disease = factor(Disease, levels = disease_order))
@@ -733,6 +770,21 @@ abs_long <- overall_df %>%
     ),
     Category = factor(Category, levels = c("DisGeNET", drug_label)),
     Method = factor(Method, levels = c("GWAS", "Representation"))
+  )
+
+plot_df_d <- summary_supp %>%
+  select(Disease, prop_better_dis, prop_better_drug) %>%
+  pivot_longer(
+    cols = c(prop_better_dis, prop_better_drug),
+    names_to = "Metric",
+    values_to = "Fraction"
+  ) %>%
+  mutate(
+    Metric = factor(
+      Metric,
+      levels = c("prop_better_dis", "prop_better_drug"),
+      labels = c("DisGeNET", drug_label)
+    )
   )
 
 # ------------------------------------------------------------
@@ -912,21 +964,6 @@ p_supp_c <- ggplot(supp_df, aes(x = LV, y = Disease, fill = max_delta_Drug)) +
   ) +
   theme_journal()
 
-plot_df_d <- summary_supp %>%
-  select(Disease, prop_better_dis, prop_better_drug) %>%
-  pivot_longer(
-    cols = c(prop_better_dis, prop_better_drug),
-    names_to = "Metric",
-    values_to = "Fraction"
-  ) %>%
-  mutate(
-    Metric = factor(
-      Metric,
-      levels = c("prop_better_dis", "prop_better_drug"),
-      labels = c("DisGeNET", drug_label)
-    )
-  )
-
 fill_vals_supp_d <- c("DisGeNET" = "#666666")
 fill_vals_supp_d[drug_label] <- "#54A24B"
 
@@ -948,15 +985,49 @@ p_supp_d <- ggplot(plot_df_d, aes(x = Fraction, y = Disease, fill = Metric)) +
   theme_journal() +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
 
-supp_plot <- (p_supp_a | p_supp_b) / (p_supp_c | p_supp_d) +
-  plot_layout(guides = "collect", widths = c(1, 1), heights = c(1, 1)) &
+max_overlap_pct <- max(supp_df$overlap_pct, na.rm = TRUE)
+if (!is.finite(max_overlap_pct) || max_overlap_pct == 0) max_overlap_pct <- 1
+
+p_supp_e <- ggplot(supp_df, aes(x = LV, y = Disease, fill = overlap_pct)) +
+  geom_tile(color = "white", linewidth = 0.5) +
+  geom_text(aes(label = sprintf("%.0f", overlap_pct)), size = 2.9, fontface = "bold") +
+  scale_fill_viridis_c(
+    option = "C",
+    limits = c(0, max_overlap_pct),
+    name = "Overlap (%)"
+  ) +
+  labs(
+    title = "e  SNP overlap between gVAE and GWAS at matched k*",
+    subtitle = "Overlap is computed from the actual gVAE-prioritized and GWAS top-k SNP sets for each latent variable.",
+    x = "Latent variable",
+    y = "Disease"
+  ) +
+  theme_journal()
+
+p_supp_f <- summary_supp %>%
+  ggplot(aes(x = mean_overlap_pct, y = Disease)) +
+  geom_col(width = 0.72, fill = "#666666") +
+  geom_text(aes(label = sprintf("%.1f", mean_overlap_pct)),
+            hjust = -0.12, size = 3.0) +
+  scale_x_continuous(expand = expansion(mult = c(0, 0.10))) +
+  labs(
+    title = "f  Mean overlap across latent variables",
+    subtitle = "Average SNP overlap remains low when comparing latent-space prioritization to matched-budget GWAS ranking.",
+    x = "Mean overlap (%)",
+    y = NULL
+  ) +
+  theme_journal() +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank())
+
+supp_plot <- (p_supp_a | p_supp_b) / (p_supp_c | p_supp_d) / (p_supp_e | p_supp_f) +
+  plot_layout(guides = "collect", widths = c(1, 1), heights = c(1, 1, 1)) &
   theme(
     legend.position = "right",
     plot.background = element_rect(fill = "white", colour = NA)
   )
 
 # ------------------------------------------------------------
-# 15. SAVE
+# 15. SAVE (PDF ONLY)
 # ------------------------------------------------------------
 pdf_device_to_use <- if (capabilities("cairo")) cairo_pdf else "pdf"
 
@@ -972,55 +1043,13 @@ ggsave(
 )
 
 ggsave(
-  filename = paste0(out_prefix_main, ".png"),
-  plot = main_plot,
-  width = 16,
-  height = 11,
-  units = "in",
-  dpi = 600,
-  bg = "white"
-)
-
-ggsave(
-  filename = paste0(out_prefix_main, ".tiff"),
-  plot = main_plot,
-  width = 16,
-  height = 11,
-  units = "in",
-  dpi = 600,
-  compression = "lzw",
-  bg = "white"
-)
-
-ggsave(
   filename = paste0(out_prefix_supp, ".pdf"),
   plot = supp_plot,
   width = 16,
-  height = 11,
+  height = 16,
   units = "in",
   dpi = 600,
   device = pdf_device_to_use,
-  bg = "white"
-)
-
-ggsave(
-  filename = paste0(out_prefix_supp, ".png"),
-  plot = supp_plot,
-  width = 16,
-  height = 11,
-  units = "in",
-  dpi = 600,
-  bg = "white"
-)
-
-ggsave(
-  filename = paste0(out_prefix_supp, ".tiff"),
-  plot = supp_plot,
-  width = 16,
-  height = 11,
-  units = "in",
-  dpi = 600,
-  compression = "lzw",
   bg = "white"
 )
 
@@ -1030,6 +1059,8 @@ ggsave(
 write_csv(importance_df, file.path(out_dir, "dynamic_empirical_snp_importance.csv"))
 write_csv(overall_df,    file.path(out_dir, "dynamic_overall_representation_vs_gwas.csv"))
 write_csv(supp_df,       file.path(out_dir, "dynamic_perLV_vs_gwas.csv"))
+write_csv(overlap_df,    file.path(out_dir, "dynamic_snp_overlap_perLV.csv"))
+write_csv(summary_supp,  file.path(out_dir, "dynamic_snp_overlap_summary.csv"))
 write_csv(diag_df,       file.path(out_dir, "dynamic_selection_diagnostics.csv"))
 
 if (nrow(skip_df) > 0) {

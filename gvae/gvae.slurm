@@ -31,7 +31,7 @@ export TF_NUM_INTEROP_THREADS=2
 #############################
 # 1) Paths
 #############################
-QGVAE_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/qgvae_bed.py"
+QGVAE_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/gvae.py"
 BASE_DATA="/work/long_lab/for_Ariel/files"
 RUN_ROOT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG"
 

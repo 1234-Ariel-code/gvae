@@ -19,10 +19,10 @@ This repository is organized in **two layers**:
 The exact scripts we run on real data analysis is reported at `archive/`. 
 
 
-- a runnable Python package under `gvae/`
+- a runnable Python package under `demo/`
 - a Streamlit app under `app/streamlit_app.py`
 - synthetic data generation and end-to-end demo scripts under `scripts/`
-- manuscript figure scripts under `archive/`
+- manuscript figure scripts under `gvae/`
 - the original analysis scripts and SLURM examples under `scripts/internal/` and `scripts/hpc/`
 
 ## User quick start
@@ -123,7 +123,7 @@ Then it runs a synthetic end-to-end analysis live in the browser.
 
 ## Controlled-data analysis layer
 
-The files under `archive/` contain the actual manuscript analysis code. They are included for transparency and reproducibility, but they require:
+The files under `gvae/` contain the actual manuscript analysis code. They are included for transparency and reproducibility, but they require:
 
 - user-supplied genotype and phenotype files
 - user-supplied GWAS summary statistics where applicable

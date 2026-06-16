@@ -63,7 +63,7 @@ BIM="/work/long_lab/for_Ariel/${DISEASE}.bim"
 # DisGeNET consolidated TSV (your local dump)
 DISGENET_TSV="/work/long_lab/Ariel_Kemogne/Representation_learning/eSPRESSO/${DISEASE}/consolidated.tsv"
 
-PY="${CODE_DIR}/biology_with_generelevance.py"
+PY="${CODE_DIR}/gene-pathway_enrichment.py"
 # PY="${CODE_DIR}/relevance.py"
 
 ############################

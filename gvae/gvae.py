@@ -12,7 +12,7 @@ import tensorflow as tf
 from sklearn.metrics import mean_squared_error
 from sklearn.metrics import r2_score
 from sklearn.model_selection import train_test_split
-from tensorflow.keras import layers, Model, mixed_precision
+from tensorflow.keras import layers, Model
 
 # NEW: bed_reader
 from bed_reader import open_bed
@@ -35,6 +35,8 @@ for device in physical_devices:
 # Mixed precision ON by default; can be disabled via --no_mixed_precision
 AUTOTUNE = tf.data.AUTOTUNE
 
+def get_initial_neurons(latent_dim: int, num_layers: int) -> int:
+    return int(latent_dim * (2 ** num_layers))
 
 # ----------------------------------------------------------
 # BED loading + imputation
@@ -410,40 +412,37 @@ def load_data_bed(
 # ----------------------------------------------------------
 # Shared encoder / decoder builders
 # ----------------------------------------------------------
-def build_encoder(original_dim: int, latent_dim: int, num_layers: int,
-                  initial_neurons: int = 128) -> tf.keras.Sequential:
+def build_encoder(original_dim: int, latent_dim: int, num_layers: int) -> tf.keras.Sequential:
     layers_list = [layers.InputLayer(input_shape=(original_dim,))]
-    layers_list.append(layers.LayerNormalization())
-    neurons = initial_neurons
+
+    neurons = get_initial_neurons(latent_dim, num_layers)
+
     for _ in range(num_layers):
         layers_list.append(layers.Dense(neurons, activation="relu"))
-        neurons //= 2
-        neurons = max(neurons, latent_dim * 2)
+        neurons = max(neurons // 2, latent_dim * 2)
+
     layers_list.append(layers.Dense(latent_dim * 2))
     return tf.keras.Sequential(layers_list)
 
 
-def build_qgvae_decoder(latent_dim: int, num_layers: int, original_dim: int,
-                        initial_neurons: int = 128) -> tf.keras.Sequential:
+def build_qgvae_decoder(latent_dim: int, num_layers: int, original_dim: int) -> tf.keras.Sequential:
     layers_list = [layers.InputLayer(input_shape=(latent_dim * 2,))]
-    neurons = initial_neurons
-    for _ in range(num_layers):
-        layers_list.append(layers.Dense(neurons, activation="relu"))
-        neurons *= 2
+
+    for width in get_qgvae_decoder_widths(latent_dim, num_layers):
+        layers_list.append(layers.Dense(width, activation="relu"))
+
     layers_list.append(layers.Dense(original_dim))
     return tf.keras.Sequential(layers_list)
 
 
-def build_baseline_decoder(latent_dim: int, num_layers: int, original_dim: int,
-                           initial_neurons: int = 128) -> tf.keras.Sequential:
+def build_baseline_decoder(latent_dim: int, num_layers: int, original_dim: int) -> tf.keras.Sequential:
     layers_list = [layers.InputLayer(input_shape=(latent_dim,))]
-    neurons = initial_neurons
-    for _ in range(num_layers):
-        layers_list.append(layers.Dense(neurons, activation="relu"))
-        neurons *= 2
+
+    for width in get_baseline_decoder_widths(latent_dim, num_layers):
+        layers_list.append(layers.Dense(width, activation="relu"))
+
     layers_list.append(layers.Dense(original_dim))
     return tf.keras.Sequential(layers_list)
-
 
 # ----------------------------------------------------------
 # Loss components
@@ -522,7 +521,7 @@ class VAE(Model):
         q25 = z_sorted[idx_25]
         q75 = z_sorted[idx_75]
         z_final = tf.concat([q25, q75], axis=-1)
-        return tf.cast(z_final, tf.float16)
+        return tf.cast(z_final, tf.float32)
 
     def decode(self, z_final):
         return self.decoder_continuous(z_final)
@@ -991,23 +990,12 @@ def main():
     # Optional stability
     parser.add_argument("--clip_log_var", action="store_true",
                         help="Clip log_var to [-10,10] to reduce KL blowups.")
-    parser.add_argument("--no_mixed_precision", action="store_true",
-                        help="Disable mixed precision (more stable, slower).")
 
     # Beta grid
     parser.add_argument("--beta", type=float, default=4.0)
     parser.add_argument("--beta_list", type=str, default="")
 
     args = parser.parse_args()
-
-    if args.no_mixed_precision:
-        # disable mixed precision
-        mixed_precision.set_global_policy("float32")
-        print("[INFO] Mixed precision disabled (policy=float32).")
-    else:
-        policy = mixed_precision.Policy("mixed_float16")
-        mixed_precision.set_global_policy(policy)
-        print("[INFO] Mixed precision enabled (policy=mixed_float16).")
 
     if args.beta_list.strip():
         betas = [float(b) for b in args.beta_list.split(",") if b.strip()]

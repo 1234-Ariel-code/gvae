@@ -35,8 +35,6 @@ for device in physical_devices:
 # Mixed precision ON by default; can be disabled via --no_mixed_precision
 AUTOTUNE = tf.data.AUTOTUNE
 
-def get_initial_neurons(latent_dim: int, num_layers: int) -> int:
-    return int(latent_dim * (2 ** num_layers))
 
 # ----------------------------------------------------------
 # BED loading + imputation
@@ -409,37 +407,55 @@ def load_data_bed(
     return arr
 
 
-# ----------------------------------------------------------
-# Shared encoder / decoder builders
-# ----------------------------------------------------------
-def build_encoder(original_dim: int, latent_dim: int, num_layers: int) -> tf.keras.Sequential:
+# Initialization of neurons for Encoder
+def compute_initial_neurons(num_layers, latent_dim):
+    """
+    Encoder starts wide enough so that progressive halving ends at 2 * latent_dim,
+    matching the mu/log_var output dimension.
+    """
+    return (2 * latent_dim) * (2 ** (num_layers - 1))
+
+
+def build_encoder(original_dim, latent_dim, num_layers):
+    initial_neurons = compute_initial_neurons(num_layers, latent_dim)
+
     layers_list = [layers.InputLayer(input_shape=(original_dim,))]
 
-    neurons = get_initial_neurons(latent_dim, num_layers)
-
+    neurons = initial_neurons
     for _ in range(num_layers):
         layers_list.append(layers.Dense(neurons, activation="relu"))
-        neurons = max(neurons // 2, latent_dim * 2)
+        neurons = max(neurons // 2, 2 * latent_dim)
 
-    layers_list.append(layers.Dense(latent_dim * 2))
+    layers_list.append(layers.Dense(latent_dim * 2))  # mu and log_var
     return tf.keras.Sequential(layers_list)
 
 
-def build_qgvae_decoder(latent_dim: int, num_layers: int, original_dim: int) -> tf.keras.Sequential:
+def build_qgvae_decoder(latent_dim, num_layers, original_dim):
+    """
+    qgVAE decoder receives concatenated quantile summaries [q25, q75],
+    so its input dimension is 2 * latent_dim.
+    """
     layers_list = [layers.InputLayer(input_shape=(latent_dim * 2,))]
 
-    for width in get_qgvae_decoder_widths(latent_dim, num_layers):
-        layers_list.append(layers.Dense(width, activation="relu"))
+    neurons = 2 * latent_dim
+    for _ in range(num_layers):
+        layers_list.append(layers.Dense(neurons, activation="relu"))
+        neurons *= 2
 
     layers_list.append(layers.Dense(original_dim))
     return tf.keras.Sequential(layers_list)
 
 
-def build_baseline_decoder(latent_dim: int, num_layers: int, original_dim: int) -> tf.keras.Sequential:
+def build_baseline_decoder(latent_dim, num_layers, original_dim):
+    """
+    Baseline VAE decoder receives one latent vector of dimension latent_dim.
+    """
     layers_list = [layers.InputLayer(input_shape=(latent_dim,))]
 
-    for width in get_baseline_decoder_widths(latent_dim, num_layers):
-        layers_list.append(layers.Dense(width, activation="relu"))
+    neurons = latent_dim
+    for _ in range(num_layers):
+        layers_list.append(layers.Dense(neurons, activation="relu"))
+        neurons *= 2
 
     layers_list.append(layers.Dense(original_dim))
     return tf.keras.Sequential(layers_list)

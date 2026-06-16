@@ -5,28 +5,28 @@
 Latent-space classification (NO pre-trained weight loading required).
 
 Idea:
-- If loading pre-trained weights keeps failing due to architecture mismatch,
-  we *train the VAE weights ourselves* (on the same genotype matrix X),
-  then extract latent features and train the classifier.
+- Latent-space classification using VAE-derived and gVAE-derived latent features. 
+  The script trains the encoder on the genotype matrix, extracts latent features,
+  and evaluates downstream prediction performance using classification or regression models.
 - This guarantees perfect weight/model match because the weights are produced
   by the exact model code in this script.
 
 Supports:
 - baseline VAE  (K=1 for feature extraction => use mu)
 - beta-VAE      (K=1 for feature extraction => use mu, with beta in KL)
-- qgVAE         (K=NS for feature extraction => sample K times, use quantile features)
+- gVAE          (K=NS for feature extraction => sample K times, use quantile features)
 
 Notes:
 - Training uses a standard VAE objective:
   recon_loss + beta * KL
-- For qgVAE, training is still a standard VAE; qgVAE "magic" is in extraction:
-  sample multiple times and aggregate with row-wise quantiles.
+- For classification/regression, the trained VAE encoder is used to extract latent features.
+- For gVAE features, posterior samples are aggregated into q25/q75 quantile features.
 
 Run (example):
 python3 latent_classification.py \
   --disease T2D \
   --base_path /work/long_lab/for_Ariel/files/pruned \
-  --model_type qgvae \
+  --model_type gvae \
   --latent_dim 100 \
   --num_samples 150 \
   --num_layers 4 \
@@ -143,14 +143,48 @@ def load_genotype_csv(
     *,
     tped_file: Optional[str] = None,
     bim_file: Optional[str] = None,
-    feature_mode: Optional[str] = None,   # None | "random" | "gwas_top"
-    downsample_d: Optional[int] = None,
+    feature_mode: Optional[str] = "gwas_top",   # None | "gwas_top"
+    downsample_d: Optional[int] = 50000,
     gwas_assoc_path: Optional[str] = None,
-    downsample_n: Optional[int] = None,
-    downsample_frac: Optional[float] = None,
-    seed: int = 42,
     return_indices: bool = False,
-) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[np.ndarray], Optional[List[str]]]:
+) -> Tuple[np.ndarray, Optional[np.ndarray], Optional[List[str]]]:
+    """
+    Load genotype CSV and optionally apply structured GWAS-top SNP filtering.
+
+    Reviewer-facing note:
+    This function does not perform random row downsampling or random SNP
+    downsampling. For the manuscript workflow, SNP filtering is performed once
+    using the structured GWAS-top filtering step.
+
+    Parameters
+    ----------
+    file_path : str
+        Genotype CSV path.
+    separator : str
+        CSV separator.
+    tped_file : str, optional
+        TPED file used to align SNP IDs with genotype columns.
+    bim_file : str, optional
+        BIM file used to align SNP IDs with genotype columns.
+    feature_mode : {None, "gwas_top"}
+        If None, use all SNPs after orientation/alignment.
+        If "gwas_top", retain the top GWAS-ranked SNPs.
+    downsample_d : int, optional
+        Structured GWAS-top SNP budget. This controls how many top GWAS-ranked SNPs are retained when feature_mode="gwas_top"; it is not random downsampling.
+    gwas_assoc_path : str, optional
+        PLINK .assoc file containing SNP and P columns.
+    return_indices : bool
+        If True, return the selected column indices and kept SNP IDs.
+
+    Returns
+    -------
+    arr : np.ndarray
+        Genotype matrix, shape (N individuals, D SNPs).
+    optionally: arr, col_idx, kept_snp_ids
+    """
+
+    if feature_mode not in (None, "gwas_top"):
+        raise ValueError("feature_mode must be either None or 'gwas_top'.")
 
     df = pl.read_csv(
         file_path,
@@ -163,125 +197,77 @@ def load_genotype_csv(
     arr_noT = df.fill_null(strategy="mean").to_numpy()
     arr_T = df.fill_null(strategy="mean").transpose(include_header=False).to_numpy()
 
-    chosen = None
-    snp_ids = None
-
+    # Read SNP IDs and choose orientation whose columns match SNP IDs
     if tped_file is not None:
         snp_ids = _read_snp_ids_from_tped(tped_file)
-        M = len(snp_ids)
-        if arr_noT.shape[1] == M:
-            chosen = arr_noT
-        elif arr_T.shape[1] == M:
-            chosen = arr_T
-        else:
-            raise ValueError(
-                f"[ORIENTATION ERROR] Neither orientation matches TPED SNP count.\n"
-                f"TPED SNPs: {M}\n"
-                f"arr_noT shape: {arr_noT.shape}\n"
-                f"arr_T shape: {arr_T.shape}\n"
-            )
+    elif bim_file is not None:
+        snp_ids = _read_snp_ids_from_bim(bim_file)
     else:
-        chosen = arr_T
+        raise ValueError("A TPED or BIM file is required to align SNP IDs.")
 
-    arr = chosen.astype(np.float32, copy=False)
-    N, D = arr.shape
-    rng = np.random.default_rng(seed)
+    M = len(snp_ids)
 
-    row_idx = np.arange(N)
+    if arr_noT.shape[1] == M:
+        arr = arr_noT
+    elif arr_T.shape[1] == M:
+        arr = arr_T
+    else:
+        raise ValueError(
+            f"[ORIENTATION ERROR] Neither genotype orientation matches SNP count.\n"
+            f"SNP IDs: {M}\n"
+            f"arr_noT shape: {arr_noT.shape} with D={arr_noT.shape[1]}\n"
+            f"arr_T   shape: {arr_T.shape} with D={arr_T.shape[1]}\n"
+            f"The genotype columns must align with the TPED/BIM SNP order."
+        )
+
+    arr = arr.astype(np.float32, copy=False)
+    _, D = arr.shape
+
+    if len(snp_ids) != D:
+        raise ValueError(
+            f"SNP-ID count ({len(snp_ids)}) does not match genotype D ({D}). "
+            f"The genotype columns must align with the TPED/BIM SNP order."
+        )
+
+    snp_ids_arr = np.array(snp_ids, dtype=str)
     col_idx = np.arange(D)
-    kept_snp_ids = None
+    kept_snp_ids = snp_ids_arr.tolist()
 
-    # --- Row downsampling
-    if (downsample_n is not None) and (downsample_frac is not None):
-        raise ValueError("Use only one of downsample_n or downsample_frac.")
-    if downsample_frac is not None:
-        if not (0.0 < downsample_frac <= 1.0):
-            raise ValueError("downsample_frac must be in (0,1].")
-        target_n = max(1, int(round(N * downsample_frac)))
-    elif downsample_n is not None:
-        if downsample_n <= 0:
-            raise ValueError("downsample_n must be > 0.")
-        target_n = min(N, int(downsample_n))
-    else:
-        target_n = None
-
-    if target_n is not None and target_n < N:
-        row_idx = rng.choice(N, size=target_n, replace=False)
-        row_idx.sort()
-        arr = arr[row_idx, :]
-        N = arr.shape[0]
-
-    # --- Feature downsampling
-    if feature_mode is None:
-        pass
-    elif feature_mode == "random":
+    # Optional structured GWAS-top SNP filtering
+    if feature_mode == "gwas_top":
         if downsample_d is None:
-            raise ValueError("feature_mode='random' requires downsample_d.")
-        target_d = min(D, int(downsample_d))
-        if target_d < D:
-            col_idx = rng.choice(D, size=target_d, replace=False)
-            col_idx.sort()
-            arr = arr[:, col_idx]
-            if snp_ids is not None:
-                kept_snp_ids = np.array(snp_ids, dtype=str)[col_idx].tolist()
-
-    elif feature_mode == "gwas_top":
-        if downsample_d is None or gwas_assoc_path is None:
-            raise ValueError("feature_mode='gwas_top' requires downsample_d and gwas_assoc_path.")
-        if snp_ids is None:
-            if tped_file is not None:
-                snp_ids = _read_snp_ids_from_tped(tped_file)
-            elif bim_file is not None:
-                snp_ids = _read_snp_ids_from_bim(bim_file)
-            else:
-                raise ValueError("Need tped_file or bim_file for feature_mode='gwas_top'.")
-
-        if len(snp_ids) != D:
-            raise ValueError(f"SNP-ID count ({len(snp_ids)}) != D ({D}). CSV columns must align to TPED/BIM SNP IDs.")
+            raise ValueError("feature_mode='gwas_top' requires downsample_d.")
+        if gwas_assoc_path is None:
+            raise ValueError("feature_mode='gwas_top' requires gwas_assoc_path.")
 
         gwas_snps, gwas_p = _load_gwas_assoc(gwas_assoc_path)
         order = np.argsort(gwas_p)
         topM = int(min(len(order), downsample_d))
         gwas_top_snps = set(gwas_snps[order[:topM]].tolist())
 
-        snp_ids_arr = np.array(snp_ids, dtype=str)
         mask = np.isin(snp_ids_arr, list(gwas_top_snps))
+
         if mask.sum() == 0:
-            raise RuntimeError("No overlap between GWAS top SNPs and genotype columns (SNP ID mismatch).")
+            raise RuntimeError(
+                f"No overlap between GWAS top {topM} SNPs and genotype columns.\n"
+                f"Likely SNP ID mismatch, e.g. rsIDs vs chr:pos, build mismatch, or different SNP order."
+            )
 
         col_idx = np.where(mask)[0]
-        arr = arr[:, col_idx]
+        arr = arr[:, col_idx].astype(np.float32, copy=False)
         kept_snp_ids = snp_ids_arr[col_idx].tolist()
-    else:
-        raise ValueError("feature_mode must be one of: None | 'random' | 'gwas_top'")
 
-    arr = arr.astype(np.float32, copy=False)
+        print(
+            f"[INFO] Structured SNP filtering complete: "
+            f"kept {arr.shape[1]} SNPs from GWAS top {topM} candidates."
+        )
+    else:
+        print(f"[INFO] No SNP filtering applied; using all {arr.shape[1]} aligned SNPs.")
 
     if return_indices:
-        return arr, row_idx, col_idx, kept_snp_ids
-    return arr, None, None, kept_snp_ids
+        return arr, col_idx, kept_snp_ids
 
-
-def looad_phenotype(phen_path: str) -> Tuple[np.ndarray, np.ndarray]:
-    df = pd.read_csv(phen_path, delim_whitespace=True, header=None)
-    if df.shape[1] < 3:
-        raise ValueError(f"Phenotype file must have >=3 columns (FID IID PHENO): {phen_path}")
-    y = df.iloc[:, 2].to_numpy()
-    keep = np.isin(y, [0, 1])
-    return y.astype(np.int32), keep
-
-def load_phenotype(phen_path: str) -> Tuple[np.ndarray, np.ndarray]:
-    df = pd.read_csv(phen_path, delim_whitespace=True, header=None)
-    if df.shape[1] < 3:
-        raise ValueError(f"Phenotype file must have >=3 columns (FID IID PHENO): {phen_path}")
-    y_raw = df.iloc[:, 2].to_numpy()
-    # Keep WTCCC-style case/control coding: 1/2
-    keep = np.isin(y_raw, [1, 2])
-    # Map to 0/1 for keras
-    y = np.full_like(y_raw, fill_value=-1, dtype=np.int32)
-    y[y_raw == 1] = 0
-    y[y_raw == 2] = 1
-    return y, keep
+    return arr, None, kept_snp_ids
 
 def load_phenotype_auto(phen_path: str):
     """
@@ -347,15 +333,12 @@ def load_phenotype_auto(phen_path: str):
 # VAE (we learn weights here)
 # ------------------------------
 def compute_initial_neurons(num_layers: int, latent_dim: int) -> int:
-    return latent_dim * (2 ** (num_layers - 1))
+    return (2 * latent_dim) * (2 ** (num_layers - 1))
 
-
-def build_encoder(original_dim: int, latent_dim: int, num_layers: int, *, use_layernorm: bool = False) -> tf.keras.Model:
+def build_encoder(original_dim: int, latent_dim: int, num_layers: int) -> tf.keras.Model:
     init = compute_initial_neurons(num_layers, latent_dim)
     inp = layers.Input(shape=(original_dim,), name="x")
     x = inp
-    if use_layernorm:
-        x = layers.LayerNormalization(name="enc_ln")(x)
 
     n = init
     for i in range(num_layers):
@@ -442,7 +425,6 @@ def train_vae_on_X(
     latent_dim: int,
     num_layers: int,
     beta: float,
-    use_layernorm: bool,
     epochs: int,
     batch_size: int,
     lr: float,
@@ -451,8 +433,9 @@ def train_vae_on_X(
 ) -> VAE:
     tf.keras.utils.set_random_seed(seed)
 
-    encoder = build_encoder(X.shape[1], latent_dim, num_layers, use_layernorm=use_layernorm)
+    encoder = build_encoder(X.shape[1], latent_dim, num_layers)
     decoder = build_decoder(X.shape[1], latent_dim, num_layers)
+
     vae = VAE(encoder, decoder, beta=beta)
     vae.compile(optimizer=tf.keras.optimizers.Adam(lr))
 
@@ -470,9 +453,9 @@ def train_vae_on_X(
 @dataclass
 class LatentConfig:
     disease: str
-    model_type: str         # "baseline" | "qgvae" | "betavae"
+    model_type: str         # "baseline" | "gvae" | "betavae"
     latent_dim: int
-    num_samples: int        # NS (K) used in extraction for qgvae
+    num_samples: int        # NS (K) used in extraction for gvae
     num_layers: int         # L
     beta: Optional[float]   # only for betavae
 
@@ -648,273 +631,10 @@ def train_regressor(Z: np.ndarray, y: np.ndarray, *, seed: int, epochs: int, bat
 # ------------------------------
 # Plotting
 # ------------------------------
-def plot_disease_curves(history_dir: str, out_dir: str, disease: str):
-    import matplotlib.pyplot as plt
-    os.makedirs(out_dir, exist_ok=True)
-
-    records = []
-    for fn in os.listdir(history_dir):
-        if not fn.endswith(".pickle"):
-            continue
-        if not fn.startswith(f"{disease}_"):
-            continue
-        with open(os.path.join(history_dir, fn), "rb") as f:
-            h = pickle.load(f)
-
-        # {disease}_{model}_LD{LD}_NS{NS}_L{L}_B{betaTag}.pickle
-        stem = fn[:-7]
-        parts = stem.split("_")
-        model = parts[1]
-        LD = int(parts[2].replace("LD", ""))
-        NS = int(parts[3].replace("NS", ""))
-        L = int(parts[4].replace("L", ""))
-        beta = parts[5].replace("B", "") if len(parts) >= 6 else "NA"
-        records.append({"model": model, "LD": LD, "NS": NS, "L": L, "beta": beta, "history": h})
-
-    if not records:
-        print(f"[plot] No histories found for {disease} in {history_dir}")
-        return
-
-    groups = {}
-    for r in records:
-        key = (r["LD"], r["L"])
-        groups.setdefault(key, []).append(r)
-
-    keys = sorted(groups.keys(), key=lambda x: x[0])
-    n = len(keys)
-    ncols = min(3, n)
-    nrows = int(np.ceil(n / ncols))
-
-    def line_label(r):
-        if r["model"] == "baseline":
-            return "baseline K=1"
-        if r["model"] == "qgvae":
-            return f"qgVAE K={r['NS']}"
-        if r["model"] == "betavae":
-            return f"betaVAE β={r['beta']} K=1"
-        return r["model"]
-
-    def sort_key(r):
-        if r["model"] == "baseline":
-            return (0, 0, 0)
-        if r["model"] == "qgvae":
-            return (1, r["NS"], 0)
-        if r["model"] == "betavae":
-            return (2, 0, r["beta"])
-        return (9, 0, 0)
-
-    def _plot(metric_key: str, out_name: str, title_suffix: str):
-        fig, axes = plt.subplots(nrows, ncols, figsize=(6*ncols, 4.5*nrows), sharey=False)
-        if nrows == 1 and ncols == 1:
-            axes = np.array([[axes]])
-        elif nrows == 1:
-            axes = np.array([axes])
-        elif ncols == 1:
-            axes = np.array([[ax] for ax in axes])
-
-        for idx, key in enumerate(keys):
-            r0, c0 = divmod(idx, ncols)
-            ax = axes[r0, c0]
-            LD, L = key
-            rows = sorted(groups[key], key=sort_key)
-
-            for r in rows:
-                hist = r["history"]
-                if metric_key in hist:
-                    ax.plot(hist[metric_key], label=line_label(r))
-
-            ax.set_title(f"{disease} | LD={LD}, L={L} ({title_suffix})")
-            ax.set_xlabel("Epoch")
-            ax.set_ylabel(metric_key.replace("_", " "))
-            ax.grid(True, alpha=0.3)
-            ax.legend(loc="lower right", frameon=True)
-
-        for idx in range(n, nrows*ncols):
-            r0, c0 = divmod(idx, ncols)
-            axes[r0, c0].axis("off")
-
-        plt.tight_layout()
-        fig.savefig(os.path.join(out_dir, out_name), dpi=300, bbox_inches="tight")
-        plt.close(fig)
-
-    _plot("val_accuracy", f"{disease}_val_accuracy.png", "Validation Accuracy")
-    _plot("val_auc", f"{disease}_val_auc.png", "Validation AUC")
-
-def pllot_per_config_models(history_dir: str, out_dir: str, disease: str, choose_beta: str = "best_auc"):
-    """
-    One figure per config (LD, NS, L) comparing baseline vs qgvae vs betavae.
-    Saves TWO figs per config: val_accuracy and val_auc.
-
-    choose_beta:
-      - "best_auc": choose betaVAE beta that maximizes peak val_auc
-      - "beta_1.0": use beta=1.0 only (if present)
-    """
-    import os
-    import numpy as np
-    import pickle
-    import matplotlib.pyplot as plt
-
-    os.makedirs(out_dir, exist_ok=True)
-
-    # -------------------------
-    # 1) Load all histories
-    # -------------------------
-    runs = []
-    for fn in os.listdir(history_dir):
-        if not (fn.endswith(".pickle") and fn.startswith(f"{disease}_")):
-            continue
-
-        # {disease}_{model}_LD{LD}_NS{NS}_L{L}_B{betaTag}.pickle
-        stem = fn[:-7]
-        parts = stem.split("_")
-        if len(parts) < 6:
-            continue
-
-        model = parts[1]
-        LD = int(parts[2].replace("LD", ""))
-        NS = int(parts[3].replace("NS", ""))
-        L  = int(parts[4].replace("L", ""))
-        beta = parts[5].replace("B", "")  # "NA" or float string
-
-        with open(os.path.join(history_dir, fn), "rb") as f:
-            hist = pickle.load(f)
-
-        # ensure keys exist
-        if "val_accuracy" not in hist: hist["val_accuracy"] = []
-        if "val_auc" not in hist:      hist["val_auc"] = []
-
-        runs.append({
-            "fn": fn,
-            "model": model,
-            "LD": LD,
-            "NS": NS,
-            "L": L,
-            "beta": beta,
-            "hist": hist
-        })
-
-    if not runs:
-        print(f"[plot] No histories found for {disease} in {history_dir}")
-        return
-
-    # Helper: peak metric
-    def peak(hist_list):
-        if hist_list is None or len(hist_list) == 0:
-            return float("-inf")
-        return float(np.nanmax(np.array(hist_list, dtype=float)))
-
-    # -------------------------
-    # 2) Index runs for lookup
-    # -------------------------
-    # baseline indexed by (LD,L)
-    baseline_map = {}
-    # qgvae indexed by (LD,NS,L)
-    qg_map = {}
-    # betavae indexed by (LD,L) -> list of (beta, run)
-    beta_map = {}
-
-    for r in runs:
-        if r["model"] == "baseline":
-            baseline_map[(r["LD"], r["L"])] = r
-        elif r["model"] == "qgvae":
-            qg_map[(r["LD"], r["NS"], r["L"])] = r
-        elif r["model"] == "betavae":
-            beta_map.setdefault((r["LD"], r["L"]), []).append(r)
-
-    # all configs come from qgvae configs (LD,NS,L); you can extend if needed
-    all_configs = sorted(qg_map.keys(), key=lambda x: (x[0], x[2], x[1]))  # (LD,NS,L)
-
-    # -------------------------
-    # 3) Choose betaVAE run per (LD,L)
-    # -------------------------
-    def pick_beta_run(LD, L):
-        lst = beta_map.get((LD, L), [])
-        if not lst:
-            return None
-
-        if choose_beta == "beta_1.0":
-            for r in lst:
-                try:
-                    if abs(float(r["beta"]) - 1.0) < 1e-9:
-                        return r
-                except Exception:
-                    pass
-            return None  # not found
-
-        # default: best by peak val_auc
-        best = None
-        best_score = float("-inf")
-        for r in lst:
-            score = peak(r["hist"].get("val_auc", []))
-            if score > best_score:
-                best_score = score
-                best = r
-        return best
-
-    # -------------------------
-    # 4) Plot per config
-    # -------------------------
-    def plot_metric(metric_key: str, cfg_key, baseline_run, qg_run, beta_run):
-        LD, NS, L = cfg_key
-        fig = plt.figure(figsize=(7.5, 5.0))
-        ax = plt.gca()
-
-        # baseline
-        if baseline_run is not None and len(baseline_run["hist"].get(metric_key, [])) > 0:
-            ax.plot(baseline_run["hist"][metric_key], label="baseline (K=1)")
-
-        # qgvae
-        if qg_run is not None and len(qg_run["hist"].get(metric_key, [])) > 0:
-            ax.plot(qg_run["hist"][metric_key], label=f"qgVAE (K={NS})")
-
-        # betavae
-        if beta_run is not None and len(beta_run["hist"].get(metric_key, [])) > 0:
-            ax.plot(beta_run["hist"][metric_key], label=f"betaVAE (β={beta_run['beta']})")
-
-        ax.set_title(f"{disease} | LD={LD}, NS={NS}, L={L} ({metric_key.replace('_',' ')})")
-        ax.set_xlabel("Epoch")
-        ax.set_ylabel(metric_key.replace("_", " "))
-        ax.grid(True, alpha=0.3)
-        ax.legend(loc="best", frameon=True)
-        plt.tight_layout()
-
-        return fig
-
-    # Output subfolders (clean)
-    acc_dir = os.path.join(out_dir, "per_config_accuracy")
-    auc_dir = os.path.join(out_dir, "per_config_auc")
-    os.makedirs(acc_dir, exist_ok=True)
-    os.makedirs(auc_dir, exist_ok=True)
-
-    for cfg in all_configs:
-        LD, NS, L = cfg
-
-        qg_run = qg_map.get(cfg, None)
-        baseline_run = baseline_map.get((LD, L), None)
-        beta_run = pick_beta_run(LD, L)
-
-        # Skip if qg run missing (shouldn't happen)
-        if qg_run is None:
-            continue
-
-        # Accuracy fig
-        fig1 = plot_metric("val_accuracy", cfg, baseline_run, qg_run, beta_run)
-        out1 = os.path.join(acc_dir, f"{disease}_LD{LD}_NS{NS}_L{L}_val_accuracy.png")
-        fig1.savefig(out1, dpi=300, bbox_inches="tight")
-        plt.close(fig1)
-
-        # AUC fig
-        fig2 = plot_metric("val_auc", cfg, baseline_run, qg_run, beta_run)
-        out2 = os.path.join(auc_dir, f"{disease}_LD{LD}_NS{NS}_L{L}_val_auc.png")
-        fig2.savefig(out2, dpi=300, bbox_inches="tight")
-        plt.close(fig2)
-
-    print(f"[OK] Saved per-config figs in:\n  {acc_dir}\n  {auc_dir}")
-
 
 def plot_per_config_models(history_dir: str, out_dir: str, disease: str, choose_beta: str = "auto"):
     """
-    One figure per config (LD, NS, L) comparing baseline vs qgvae vs betavae.
+    One figure per config (LD, NS, L) comparing baseline vs gvae vs betavae.
 
     Classification:
       - produces per-config plots for val_accuracy and val_auc
@@ -1011,12 +731,12 @@ def plot_per_config_models(history_dir: str, out_dir: str, disease: str, choose_
     for r in runs:
         if r["model"] == "baseline":
             baseline_map[(r["LD"], r["L"])] = r
-        elif r["model"] == "qgvae":
+        elif r["model"] == "gvae":
             qg_map[(r["LD"], r["NS"], r["L"])] = r
         elif r["model"] == "betavae":
             beta_map.setdefault((r["LD"], r["L"]), []).append(r)
 
-    # configs come from qgvae configs
+    # configs come from gvae configs
     all_configs = sorted(qg_map.keys(), key=lambda x: (x[0], x[2], x[1]))  # (LD,NS,L)
 
     # -------------------------
@@ -1073,7 +793,7 @@ def plot_per_config_models(history_dir: str, out_dir: str, disease: str, choose_
                 ax.plot(vals, label=label)
 
         safe_plot(baseline_run, "baseline (K=1)")
-        safe_plot(qg_run, f"qgVAE (K={NS})")
+        safe_plot(qg_run, f"gVAE (K={NS})")
         if beta_run is not None:
             safe_plot(beta_run, f"betaVAE (β={beta_run['beta']})")
 
@@ -1147,7 +867,83 @@ def plot_per_config_models(history_dir: str, out_dir: str, disease: str, choose_
 
         print(f"[OK] Saved per-config REGRESSION figs in:\n  {rmse_dir}\n  {mae_dir}\n  {r2_dir}")
 
+def build_summary_row(
+    *,
+    run_tag: str,
+    disease: str,
+    task: str,
+    cfg: LatentConfig,
+    Z: np.ndarray,
+    final_metrics: dict,
+    hist_path: str,
+    met_path: str,
+    cache_path: str,
+    cache_latents: bool,
+    args,
+    beta_for_training: float,
+) -> dict:
+    """
+    Build one summary row that works for both classification and regression.
 
+    Classification metrics:
+      - val_auc_final
+      - val_acc_final
+
+    Regression metrics:
+      - val_r2_final
+      - val_rmse_final
+      - val_mae_final
+      - val_corr_final
+    """
+
+    row = {
+        "run": run_tag,
+        "disease": disease,
+        "task": task,
+        "model_type": cfg.model_type,
+        "LD": cfg.latent_dim,
+        "NS": cfg.num_samples,
+        "L": cfg.num_layers,
+        "beta": cfg.beta if cfg.beta is not None else np.nan,
+        "Z_dim": Z.shape[1],
+        "n_val": final_metrics.get("n_val", np.nan),
+
+        # Classification metrics
+        "val_auc_final": np.nan,
+        "val_acc_final": np.nan,
+
+        # Regression metrics
+        "val_r2_final": np.nan,
+        "val_rmse_final": np.nan,
+        "val_mae_final": np.nan,
+        "val_corr_final": np.nan,
+
+        # Paths
+        "history_path": hist_path,
+        "metrics_path": met_path,
+        "latent_cache": cache_path if cache_latents else "",
+
+        # VAE training settings
+        "vae_epochs": int(args.train_vae_epochs),
+        "vae_batch_size": int(args.vae_batch_size),
+        "vae_lr": float(args.vae_lr),
+        "vae_beta": float(beta_for_training),
+    }
+
+    if task == "classification":
+        row["val_auc_final"] = final_metrics.get("val_auc_final", np.nan)
+        row["val_acc_final"] = final_metrics.get("val_acc_final", np.nan)
+
+    elif task == "regression":
+        row["val_r2_final"] = final_metrics.get("val_r2_final", np.nan)
+        row["val_rmse_final"] = final_metrics.get("val_rmse_final", np.nan)
+        row["val_mae_final"] = final_metrics.get("val_mae_final", np.nan)
+        row["val_corr_final"] = final_metrics.get("val_corr_final", np.nan)
+
+    else:
+        raise ValueError(f"Unknown task type: {task}")
+
+    return row
 
 # ------------------------------
 # Main
@@ -1158,7 +954,7 @@ def main():
     ap.add_argument("--disease", required=True, type=str)
     ap.add_argument("--base_path", default="/work/long_lab/for_Ariel/files", type=str)
 
-    ap.add_argument("--model_type", required=True, choices=["baseline", "qgvae", "betavae"])
+    ap.add_argument("--model_type", required=True, choices=["baseline", "gvae", "betavae"])
     ap.add_argument("--latent_dim", required=True, type=int)
     ap.add_argument("--num_samples", required=True, type=int)
     ap.add_argument("--num_layers", required=True, type=int)
@@ -1168,10 +964,9 @@ def main():
     ap.add_argument("--train_vae_epochs", default=50, type=int)
     ap.add_argument("--vae_batch_size", default=256, type=int)
     ap.add_argument("--vae_lr", default=1e-3, type=float)
-    ap.add_argument("--use_layernorm", action="store_true")
 
-    ap.add_argument("--feature_mode", default="gwas_top", choices=["none", "random", "gwas_top"])
-    ap.add_argument("--downsample_d", default=50000, type=int)
+    ap.add_argument("--feature_mode", default="gwas_top", choices=["none", "gwas_top"], help="SNP filtering mode. Use 'gwas_top' for the manuscript workflow.")
+    ap.add_argument("--downsample_d", default=50000, type=int, help="Number of top GWAS-ranked SNPs to retain; this is a structured GWAS-top SNP budget, not random downsampling.")
     ap.add_argument("--assoc_path", default=None, type=str)
     ap.add_argument("--tped_file", default=None, type=str)
 
@@ -1202,18 +997,16 @@ def main():
 
     fm = None if args.feature_mode == "none" else args.feature_mode
 
-    X, _, _, _ = load_genotype_csv(
-        geno_csv,
-        separator=",",
-        tped_file=args.tped_file,
-        feature_mode=fm,
-        downsample_d=args.downsample_d if fm is not None else None,
-        gwas_assoc_path=args.assoc_path if fm == "gwas_top" else None,
-        seed=args.seed,
-        return_indices=False,
+    X, _, _ = load_genotype_csv(
+       geno_csv,
+       separator=",",
+       tped_file=args.tped_file,
+       feature_mode=fm,
+       downsample_d=args.downsample_d if fm == "gwas_top" else None,
+       gwas_assoc_path=args.assoc_path if fm == "gwas_top" else None,
+       return_indices=False,
     )
 
-    #y_all, keep = load_phenotype(phen_path)
     y_all, keep, task, phen_info = load_phenotype_auto(phen_path)
     print("[PHENOTYPE]", phen_info)
 
@@ -1257,7 +1050,7 @@ def main():
     beta_for_training = 1.0
     if cfg.model_type == "betavae":
         beta_for_training = float(cfg.beta)
-    # baseline and qgvae both use beta=1.0 in training objective here.
+    # baseline and gvae both use beta=1.0 in training objective here.
 
     print("\n[STEP] Training VAE weights (in-script) so architecture/weights always match...")
     vae = train_vae_on_X(
@@ -1265,7 +1058,6 @@ def main():
         latent_dim=cfg.latent_dim,
         num_layers=cfg.num_layers,
         beta=beta_for_training,
-        use_layernorm=bool(args.use_layernorm),
         epochs=int(args.train_vae_epochs),
         batch_size=int(args.vae_batch_size),
         lr=float(args.vae_lr),
@@ -1309,74 +1101,60 @@ def main():
         history_dict.setdefault("val_r2", [])
         history_dict.setdefault("val_corr", [])
 
-    #hist, final_metrics = train_classifier(
-    #    Z=Z, y=y, seed=args.seed, epochs=args.epochs, batch_size=args.batch_size, val_size=args.val_size
-    #)
-
-    #history_dict = hist.history
-    #if "val_auc" not in history_dict:
-    #    history_dict["val_auc"] = []
-    #if "val_accuracy" not in history_dict:
-    #    history_dict["val_accuracy"] = []
-
     hist_path = os.path.join(hist_dir, f"{run_tag}.pickle")
     with open(hist_path, "wb") as f:
         pickle.dump(history_dict, f)
 
     met_path = os.path.join(met_dir, f"{run_tag}.json")
-    with open(met_path, "w") as f:
-        json.dump(
-            {
-                "run": run_tag,
-                "disease": disease,
-                "model_type": cfg.model_type,
-                "LD": cfg.latent_dim,
-                "NS": cfg.num_samples,
-                "L": cfg.num_layers,
-                "beta": cfg.beta,
-                "Z_shape": list(Z.shape),
-                "final": final_metrics,
-                "vae_training": {
-                    "epochs": int(args.train_vae_epochs),
-                    "batch_size": int(args.vae_batch_size),
-                    "lr": float(args.vae_lr),
-                    "use_layernorm": bool(args.use_layernorm),
-                    "beta_in_objective": float(beta_for_training),
-                },
-                "latent_cache": cache_path if args.cache_latents else "",
-            },
-            f,
-            indent=2,
-        )
 
-    summary_path = os.path.join(sum_dir, f"{disease}_summary.csv")
-    row = {
+    metrics_payload = {
         "run": run_tag,
         "disease": disease,
+        "task": task,
+        "phenotype_info": phen_info,
         "model_type": cfg.model_type,
         "LD": cfg.latent_dim,
         "NS": cfg.num_samples,
         "L": cfg.num_layers,
-        "beta": cfg.beta if cfg.beta is not None else np.nan,
-        "val_auc_final": final_metrics["val_auc_final"],
-        "val_acc_final": final_metrics["val_acc_final"],
-        "n_val": final_metrics["n_val"],
-        "Z_dim": Z.shape[1],
-        "history_path": hist_path,
-        "metrics_path": met_path,
+        "beta": cfg.beta,
+        "Z_shape": list(Z.shape),
+        "final": final_metrics,
+        "vae_training": {
+            "epochs": int(args.train_vae_epochs),
+            "batch_size": int(args.vae_batch_size),
+            "lr": float(args.vae_lr),
+            "beta_in_objective": float(beta_for_training),
+        },
         "latent_cache": cache_path if args.cache_latents else "",
-        "vae_epochs": int(args.train_vae_epochs),
-        "vae_batch_size": int(args.vae_batch_size),
-        "vae_lr": float(args.vae_lr),
-        "vae_beta": float(beta_for_training),
-        "vae_use_layernorm": bool(args.use_layernorm),
     }
+
+    with open(met_path, "w") as f:
+        json.dump(metrics_payload, f, indent=2)
+
+    summary_path = os.path.join(sum_dir, f"{disease}_summary.csv")
+
+    row = build_summary_row(
+        run_tag=run_tag,
+        disease=disease,
+        task=task,
+        cfg=cfg,
+        Z=Z,
+        final_metrics=final_metrics,
+        hist_path=hist_path,
+        met_path=met_path,
+        cache_path=cache_path,
+        cache_latents=args.cache_latents,
+        args=args,
+        beta_for_training=beta_for_training,
+    )
+
     if os.path.exists(summary_path):
         sdf = pd.read_csv(summary_path)
         sdf = sdf[sdf["run"] != run_tag]
         sdf = pd.concat([sdf, pd.DataFrame([row])], ignore_index=True)
     else:
         sdf = pd.DataFrame([row])
+
     sdf.to_csv(summary_path, index=False)
 
     print(f"\n[OK] Saved history : {hist_path}")
@@ -1384,7 +1162,6 @@ def main():
     print(f"[OK] Updated summary: {summary_path}")
 
     if args.make_plots:
-        #plot_disease_curves(history_dir=hist_dir, out_dir=fig_dir, disease=disease)
         plot_per_config_models(history_dir=hist_dir, out_dir=fig_dir, disease=disease, choose_beta="auto")
         print(f"[OK] Saved figures in: {fig_dir}")
 

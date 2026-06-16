@@ -1,4 +1,3 @@
-````markdown
 # Reproducibility Guide
 
 This document describes the recommended steps for reproducing the main computational workflows in this repository.
@@ -212,4 +211,3 @@ A typical reviewer-facing workflow is:
 7. Run GWAS-XAI matched-budget comparisons.
 8. Check generated summaries and figures.
 
-````

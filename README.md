@@ -1,141 +1,340 @@
-## gVAE. Genomic Variational Autoencoder
-
-Public, user-friendly repository scaffold for the gVAE model. For full documentation, please see the repository **Wiki**.
+# gVAE. Genomic Variational Autoencoder
 
 <img width="1376" height="768" alt="image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
 
-This repository is organized in **two layers**:
+This repository contains the manuscript-facing implementation of **gVAE**, a genomic variational autoencoder framework for stable and interpretable representation learning in high-dimensional genotype data with moderate sample sizes.
 
-1. **Demo layer**: fully runnable on synthetic genotype cohorts, with binary or quantitative traits, model comparison, SNP prioritization, mock biology summaries, and a Streamlit explorer.
-2. **Controlled-data analysis layer**: the actual analysis and figure-generation scripts used for the manuscript workflow, adapted into a public repository structure. These scripts require user-supplied genotype/phenotype files and exported summary tables because real patient data cannot be shared publicly.
-
-## What is included
+The code supports model training, latent representation extraction, SNP prioritization, downstream prediction, SNP-to-gene mapping, pathway enrichment, disease-gene relevance analysis, and reproducibility utilities used in the accompanying manuscript.
 
 <img width="1300" height="1150" alt="image" src="https://github.com/user-attachments/assets/086ca913-5a1e-4477-bcd3-efc68a30ed2f" />
 
+## Overview
 
-## Code
+Genome-wide genotype matrices are high-dimensional, sparse, and often available for cohorts with limited sample sizes. The goal of this repository is to provide a reproducible implementation of a representation learning workflow that:
 
-The exact scripts we run on real data analysis is reported at `archive/`. 
+1. trains VAE/gVAE models on genotype data,
+2. extracts stable latent representations,
+3. identifies latent-variable-associated SNPs using attribution methods,
+4. maps prioritized SNPs to genes,
+5. evaluates disease relevance and drug-target support,
+6. performs pathway enrichment analysis, and
+7. supports downstream classification and regression analyses.
 
+The main gVAE representation uses posterior latent sampling followed by quantile aggregation. In particular, the gVAE feature representation is based on the concatenation of q25 and q75 posterior latent quantiles.
 
-- a runnable Python package under `demo/`
-- a Streamlit app under `app/streamlit_app.py`
-- synthetic data generation and end-to-end demo scripts under `scripts/`
-- manuscript figure scripts under `gvae/`
-- the original analysis scripts and SLURM examples under `scripts/internal/` and `scripts/hpc/`
+## Repository structure
 
-## User quick start
+```text
+gvae/
+├── gvae/
+│   ├── gvae.py
+│   ├── gvae.slurm
+│   ├── snp_prioritization.py
+│   ├── latent_classification.py
+│   ├── gene-pathway_enrichment.py
+│   ├── gene-pathway_enrichment.slurm
+│   ├── build_target_support_table.py
+│   ├── gwas-xai.R
+│   └── gwas-xai.slurm
+├── README.md
+├── reproducibility.md
+├── requirements.txt
+├── environment.yml
+├── pyproject.toml
+├── Makefile
+├── CITATION.cff
+└── LICENSE
+```
 
-### 1. Create an environment
+## Main scripts
+
+### `gvae/gvae.py`
+
+Main model-training script for the VAE/gVAE architecture. This script trains the encoder-decoder model on genotype data and supports the dynamic latent-dimension and layer-depth configurations used in the manuscript.
+
+Key functions include:
+
+* genotype matrix loading,
+* VAE/gVAE model construction,
+* latent representation learning,
+* reconstruction and KL-loss optimization,
+* model configuration across latent dimensions, number of samples, and layer depths,
+* saving trained outputs for downstream analysis.
+
+### `gvae/snp_prioritization.py`
+
+SHAP-based SNP prioritization pipeline. This script links trained latent representations back to input SNPs by estimating SNP-level attributions for each latent variable.
+
+Key outputs include:
+
+* top SNPs per latent variable,
+* SHAP-like attribution summaries,
+* q25/q75 latent representation outputs,
+* SNP attribution files for downstream SNP-to-gene and pathway analyses.
+
+The reviewer-facing version removes old experimental components and keeps only the manuscript-relevant workflow.
+
+### `gvae/latent_classification.py`
+
+Downstream prediction script using VAE-derived and gVAE-derived latent features.
+
+This script trains a VAE encoder directly within the script, extracts latent features, and evaluates classification or regression performance using downstream neural prediction models.
+
+Supported feature types:
+
+* baseline VAE: posterior mean `mu`,
+* beta-VAE: posterior mean `mu` with beta-weighted KL training,
+* gVAE: q25/q75 posterior quantile features from multiple latent posterior samples.
+
+The script supports binary classification and quantitative-trait regression and writes summary metrics, histories, cached latent features, and optional plots.
+
+### `gvae/gene-pathway_enrichment.py`
+
+End-to-end SHAP-to-biology interpretation pipeline.
+
+This script connects prioritized SNPs to biological interpretation through:
+
+* SHAP SNP loading,
+* SNP-to-gene mapping,
+* optional chr:position to rsID bridging using BIM files,
+* Enrichr or GMT-based pathway enrichment,
+* LV-level pathway heatmaps,
+* LV bubble plots,
+* per-sample and pooled analyses,
+* DisGeNET gene-disease relevance scoring.
+
+For reproducibility, DisGeNET TSV mode is recommended. API mode is also supported when credentials are available.
+
+### `gvae/build_target_support_table.py`
+
+Utility script for building gene-level target-support tables. This script is used to summarize support between prioritized genes and external biological resources, such as disease-gene or drug-target annotations.
+
+Typical use cases include:
+
+* summarizing disease-relevant genes,
+* summarizing drug-target support,
+* preparing manuscript-ready support tables,
+* aggregating gene-level evidence across diseases or latent variables.
+
+### `gvae/gwas-xai.R`
+
+R-based analysis script for comparing GWAS-ranked signals and gVAE-XAI-prioritized signals.
+
+This script supports gene-level and disease-level comparisons between GWAS-derived and gVAE-derived signals, including matched-budget analyses and summary visualizations.
+
+### SLURM scripts
+
+The repository includes SLURM submission scripts for running analyses on high-performance computing systems:
+
+```text
+gvae/gvae.slurm
+gvae/gene-pathway_enrichment.slurm
+gvae/gwas-xai.slurm
+```
+
+These files provide example cluster-job configurations and should be edited to match the local computing environment, data paths, memory limits, and runtime requirements.
+
+## Installation
+
+The repository can be installed using either `conda` or `pip`.
+
+### Option 1: Conda environment
 
 ```bash
 conda env create -f environment.yml
 conda activate gvae
 ```
 
-Or with pip:
+### Option 2: Python requirements
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
+```
+
+### Option 3: Editable package installation
+
+```bash
 pip install -e .
 ```
 
-### 2. Run the synthetic demo pipeline
+## Expected data inputs
 
-Binary cohort:
+The scripts are designed for genotype and annotation files commonly used in genome-wide association studies and genomic representation learning.
 
-```bash
-python scripts/generate_synthetic_data.py \
-  --task binary \
-  --out_dir examples/synthetic_data/binary_demo \
-  --n_samples 600 \
-  --n_snps 2000 \
-  --n_causal 40
+Typical inputs include:
 
-python scripts/run_demo_pipeline.py \
-  --task binary \
-  --data_dir examples/synthetic_data/binary_demo \
-  --out_dir user_runs/binary_demo \
-  --latent_dim 16 \
-  --num_samples 10 \
-  --depth 2 \
-  --epochs 8
+```text
+Genotype matrix:
+  <DISEASE>_filtered.csv
+
+Phenotype file:
+  <DISEASE>_origin.phen
+
+Variant annotation files:
+  <DISEASE>_origin.tped
+  <DISEASE>.bim
+
+GWAS association file:
+  <DISEASE>_gwas.assoc
+
+SNP-to-gene mapping file:
+  cS2G or other SNP-to-gene mapping table
+
+Pathway resources:
+  Enrichr libraries or GMT files
+
+Disease-gene resources:
+  DisGeNET TSV file or API access
 ```
 
-Quantitative cohort:
+The exact file paths should be adjusted in the command-line arguments or SLURM scripts.
+
+## Example workflows
+
+### 1. Train gVAE model
 
 ```bash
-python scripts/generate_synthetic_data.py \
-  --task quantitative \
-  --out_dir examples/synthetic_data/quant_demo \
-  --n_samples 600 \
-  --n_snps 2000 \
-  --n_causal 40
-
-python scripts/run_demo_pipeline.py \
-  --task quantitative \
-  --data_dir examples/synthetic_data/quant_demo \
-  --out_dir user_runs/quant_demo \
-  --latent_dim 16 \
-  --num_samples 10 \
-  --depth 2 \
-  --epochs 8
+python gvae/gvae.py \
+  --disease T2D \
+  --base_path /path/to/genotype/files \
+  --latent_dim 100 \
+  --num_samples 150 \
+  --num_layers 4 \
+  --out_root /path/to/outputs
 ```
 
-This produces:
-
-- representation metrics
-- downstream prediction metrics
-- top SNP summaries
-- mock gene and pathway summaries
-- PNG plots 
-
-The synthetic data generator now also exports a **PLINK-compatible bundle** so we can mimic the real internal workflow on synthetic cohorts:
-
-- `demo.bed`, `demo.bim`, `demo.fam`
-- `demo_origin.tped`, `demo_origin.tfam`, `demo_origin.phen`
-- `demo_filtered.csv`
-- `demo_gwas.assoc` for binary traits or `demo_gwas.qassoc` for quantitative traits
-
-That means the public synthetic data can be used either with the lightweight user demo scripts or with the more pipeline-faithful internal scripts under `scripts/internal/`.
-
-### 3. Launch the interactive Streamlit app
+### 2. Prioritize SNPs using latent-variable attribution
 
 ```bash
-streamlit run app/streamlit_app.py
+python gvae/snp_prioritization.py \
+  --disease T2D \
+  --base_path /path/to/genotype/files \
+  --latent_dim 100 \
+  --num_samples 150 \
+  --num_layers 4 \
+  --shap_top_k 10 \
+  --out_root /path/to/xai_outputs
 ```
 
-The app lets users choose:
+### 3. Run latent-space classification or regression
 
-- cohort type: binary or quantitative
-- sample size
-- number of SNPs
-- number of causal SNPs
-- latent dimension
-- number of posterior samples for gVAE
-- network depth
-- training epochs
+```bash
+python gvae/latent_classification.py \
+  --disease T2D \
+  --base_path /path/to/genotype/files \
+  --model_type gvae \
+  --latent_dim 100 \
+  --num_samples 150 \
+  --num_layers 4 \
+  --feature_mode gwas_top \
+  --downsample_d 50000 \
+  --assoc_path /path/to/T2D_gwas.assoc \
+  --tped_file /path/to/T2D_origin.tped \
+  --train_vae_epochs 50 \
+  --vae_batch_size 256 \
+  --batch_size 256 \
+  --epochs 120 \
+  --cache_latents \
+  --out_root /path/to/latent_classification_outputs \
+  --make_plots
+```
 
-Then it runs a synthetic end-to-end analysis live in the browser.
+### 4. Run SNP-to-gene and pathway enrichment analysis
 
-## Controlled-data analysis layer
+```bash
+python gvae/gene-pathway_enrichment.py \
+  --disease T2D \
+  --base_dir /path/to/xai_outputs \
+  --s2g_path /path/to/snp_to_gene.tsv \
+  --bim_file /path/to/T2D.bim \
+  --run_gene_analysis \
+  --disgenet_mode tsv \
+  --disgenet_tsv /path/to/disgenet.tsv \
+  --disgenet_disease_name "type 2 diabetes" \
+  --out_root /path/to/gene_pathway_outputs
+```
 
-The files under `gvae/` contain the actual manuscript analysis code. They are included for transparency and reproducibility, but they require:
+## Output structure
 
-- user-supplied genotype and phenotype files
-- user-supplied GWAS summary statistics where applicable
-- local or cluster-specific path edits
-- controlled-data permissions
+Depending on the script, outputs may include:
 
-These scripts are not expected to run out of the box on GitHub-hosted public data because the real patient data cannot be distributed.
+```text
+Model outputs:
+  trained model files
+  reconstruction summaries
+  latent representations
 
-## Notes on privacy
+XAI outputs:
+  top SNPs per latent variable
+  SNP attribution summaries
+  q25/q75 latent feature files
 
-This public repository does **not** include real genotype or phenotype data. The synthetic demo is intended to show how the software behaves and how the manuscript workflow is organized without exposing patient data.
+Prediction outputs:
+  classification or regression metrics
+  training histories
+  latent feature caches
+  performance plots
+
+Gene/pathway outputs:
+  SNP-to-gene mapped tables
+  pathway enrichment tables
+  LV-by-pathway heatmaps
+  LV bubble plots
+  DisGeNET disease-gene relevance summaries
+```
+
+## Reproducibility
+
+The repository includes:
+
+```text
+reproducibility.md
+environment.yml
+requirements.txt
+pyproject.toml
+Makefile
+```
+
+These files document the computational environment and provide installation or workflow helpers. Paths in the example scripts and SLURM files should be adjusted to the local system.
+
+For reviewer-facing reproducibility, the recommended workflow is:
+
+1. create the documented environment,
+2. prepare genotype, phenotype, GWAS, and annotation files,
+3. run the model-training script,
+4. run SNP attribution,
+5. run gene/pathway enrichment,
+6. run matched downstream analyses or support-table construction.
+
+## Notes on terminology
+
+Throughout the repository:
+
+* `LV` denotes latent variable.
+* `LD` denotes latent dimension in configuration names.
+* `NS` denotes the number of posterior latent samples used for gVAE quantile aggregation.
+* `K` denotes the number of top SNPs retained per latent variable in attribution outputs.
+* gVAE features are defined using q25/q75 posterior latent quantiles.
+* GWAS-top SNP filtering is structured filtering based on GWAS ranking, not random SNP downsampling.
 
 ## Citation
 
-Please cite the manuscript and this repository if you use the code (see CITATION.cff).
+Please cite this repository using the metadata in:
+
+```text
+CITATION.cff
+```
+
+## License
+
+This repository is released under the MIT License. See:
+
+```text
+LICENSE
+```
+
+## Contact
+
+For questions about the manuscript code or reproducibility workflow, please contact the repository maintainer through GitHub.

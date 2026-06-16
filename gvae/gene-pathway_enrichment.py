@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 End-to-end SHAP → SNP→Gene → Pathway enrichment pipeline with **LV-level pathway plots**
-PLUS: ✅ Gene-level disease relevance scoring using DisGeNET (API or TSV).
+Includes gene-level disease relevance scoring using DisGeNET in TSV or API mode.
 
 Keeps everything you already had:
 - per-sample analysis (S1..)
@@ -13,10 +13,12 @@ Keeps everything you already had:
 
 NEW (Gene analysis):
 - --run_gene_analysis enables gene-level disease relevance:
-    * DisGeNET API mode (recommended): --disgenet_mode api
-      Uses env or CLI credentials to fetch token, then queries GDA-by-gene.
-    * DisGeNET TSV mode: --disgenet_mode tsv --disgenet_tsv <file.tsv>
+    * DisGeNET TSV mode (recommended for reproducibility):
+      --disgenet_mode tsv --disgenet_tsv <file.tsv>
       Auto-detects schema: diseaseId/UMLS, gene symbol, score, etc.
+    * DisGeNET API mode:
+      --disgenet_mode api
+      Uses env or CLI credentials to fetch a token, then queries GDA-by-gene.
 - Disease matching:
     * Exact match on diseaseId/UMLS CUI via --disgenet_disease_ids
     * Fallback substring match via --disgenet_disease_name (case-insensitive)
@@ -208,7 +210,7 @@ def _display_as_lv(label: str) -> str:
 
 
 # =============================================================================
-# ✅ BIM mapping helpers (chr_pos -> rsID)
+# BIM mapping helpers (chr_pos -> rsID)
 # =============================================================================
 
 def _parse_shap_chr_bp(s: str) -> Tuple[Optional[str], Optional[int]]:
@@ -332,7 +334,7 @@ def _map_shap_to_genes(
 
 
 # =============================================================================
-# ✅ LV ordering helpers
+# LV ordering helpers
 # =============================================================================
 
 def _lv_order_columns(
@@ -722,20 +724,7 @@ def write_gene_wide_matrix(
 # =============================================================================
 # Enrichment engines (UNCHANGED)
 # =============================================================================
-# (Your enrich_by_latent_enrichr, enrich_by_latent_gmt, LV bubble plots,
-#  aggregate_enrichr_within_sample remain the same as your provided version.)
-# To keep this answer readable, they are included exactly as-is below.
-# --------------------------  START: ENRICHMENT BLOCK  -------------------------
 
-# (PASTE: your enrich_by_latent_enrichr, enrich_by_latent_gmt,
-#  plot_single_lv_bubble_from_enrichr, plot_all_lvs_bubble_grid_from_enrichr,
-#  aggregate_enrichr_within_sample here)
-#
-# IMPORTANT: I am keeping your code unchanged. For brevity in this message,
-# I will re-insert the functions by referencing that they are the same as in
-# your last version, but in your actual file you MUST keep them.
-#
-# ✅ In this response, I will include them fully so the file is truly complete.
 
 # ---------------------------  BEGIN FULL ENRICHMENT  --------------------------
 
@@ -1559,7 +1548,7 @@ def aggregate_enrichr_within_sample(sample_dir: str, fdr_thr: float = 0.05, max_
 
 
 # =============================================================================
-# ✅ NEW: DisGeNET gene relevance scoring
+# DisGeNET gene relevance scoring
 # =============================================================================
 
 def _normalize_gene_symbol(g: str) -> str:
@@ -1620,10 +1609,7 @@ def _detect_disgenet_schema(df: pd.DataFrame) -> Dict[str, Optional[str]]:
 
 
 def _disgenet_auth_token(email: str, password: str, timeout: float = 30.0) -> str:
-    """
-    Auth flow: POST https://www.disgenet.org/api/auth/ {email,password} -> {token}
-    (Matches known DisGeNET client implementations.) :contentReference[oaicite:1]{index=1}
-    """
+    
     if not REQUESTS_OK:
         raise ImportError("requests is required for DisGeNET API mode. pip install requests")
 
@@ -1646,8 +1632,10 @@ def _disgenet_get_gda_by_gene(
     timeout: float = 30.0,
 ) -> pd.DataFrame:
     """
-    GET https://www.disgenet.org/api/gda/gene/<gene>?min_score=...&source=...&disease_class=...
-    :contentReference[oaicite:2]{index=2}
+    Query the DisGeNET API for gene-disease associations for one gene.
+
+    Returns an empty DataFrame if the request fails, if the gene is not found,
+    or if no associations are returned.
     """
     if not REQUESTS_OK:
         raise ImportError("requests is required for DisGeNET API mode. pip install requests")
@@ -1840,9 +1828,9 @@ def _compute_gene_relevance_from_disgenet(
                 )
             token = _disgenet_auth_token(email=email, password=pwd)
 
-        # cache token to output (for debugging), but not credentials
-        with open(os.path.join(out_dir, "disgenet_token_obtained.txt"), "w") as f:
-            f.write(token[:6] + "..." + token[-6:] + "\n")
+        # write API authentication status without saving token or credentials
+        with open(os.path.join(out_dir, "disgenet_auth_status.txt"), "w") as f:
+           f.write("DisGeNET token was provided or obtained successfully.\n")
 
         # query unique genes once
         uniq_genes = sorted(set(g for genes in query_plan.values() for g in genes))
@@ -2365,12 +2353,12 @@ def parse_args() -> argparse.Namespace:
     )
 
     # -----------------------------
-    # ✅ NEW: DisGeNET gene analysis
+    # DisGeNET gene analysis
     # -----------------------------
     p.add_argument("--run_gene_analysis", action="store_true", help="Run gene-level disease relevance scoring using DisGeNET.")
 
-    p.add_argument("--disgenet_mode", type=str, default="api", choices=["api", "tsv"],
-                   help="Gene relevance mode: api (recommended) or tsv (local dump).")
+    p.add_argument("--disgenet_mode", type=str, default="tsv", choices=["api", "tsv"],
+                   help="Gene relevance mode: tsv (recommended for reproducibility) or api.")
     p.add_argument("--disgenet_tsv", type=str, default=None,
                    help="DisGeNET TSV file path (required if disgenet_mode=tsv).")
 

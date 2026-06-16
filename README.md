@@ -6,9 +6,11 @@ This repository contains the manuscript-facing implementation of **gVAE**, a gen
 
 The code supports model training, latent representation extraction, SNP prioritization, downstream prediction, SNP-to-gene mapping, pathway enrichment, disease-gene relevance analysis, and reproducibility utilities used in the accompanying manuscript.
 
-<img width="1300" height="1150" alt="image" src="https://github.com/user-attachments/assets/086ca913-5a1e-4477-bcd3-efc68a30ed2f" />
+
 
 ## Overview
+
+<img width="1300" height="1150" alt="image" src="https://github.com/user-attachments/assets/086ca913-5a1e-4477-bcd3-efc68a30ed2f" />
 
 Genome-wide genotype matrices are high-dimensional, sparse, and often available for cohorts with limited sample sizes. The goal of this repository is to provide a reproducible implementation of a representation learning workflow that:
 

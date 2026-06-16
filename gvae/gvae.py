@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+
 from __future__ import annotations
 
 import os
@@ -81,6 +82,11 @@ def looad_bed_as_float32(bed_prefix: str) -> np.ndarray:
         X = np.nan_to_num(X, nan=0.0)
 
     return X
+
+
+
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 
 """
 PLINK BED loader + downsampling pipeline (rows + SNPs), with optional GWAS-top SNP selection.
@@ -706,7 +712,7 @@ def evaluate_r_square(original_data: np.ndarray, reconstructed_data: np.ndarray)
     reconstructed_data = np.clip(reconstructed_data, -1e10, 1e10)
     ss_res = np.sum((original_data - reconstructed_data) ** 2)
     ss_tot = np.sum((original_data - np.mean(original_data)) ** 2)
-    return  (ss_res / ss_tot) - 1
+    return  1 - (ss_res / ss_tot) 
 
 def r2_global_flat(X, Y) -> float:
     # sklearn global R² on the flattened matrix (should match your evaluate_r_square)

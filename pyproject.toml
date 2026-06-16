@@ -1,26 +1,64 @@
+```toml
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "gvae"
-version = "0.1.0"
-description = "gVAE: Stable and interpretable representation learning for high-dimensional genomic cohorts with moderate sample sizes."
+version = "1.0.0"
+description = "Stable and interpretable genomic representation learning with quantile-gated variational autoencoders."
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = [
-  "numpy>=1.26",
-  "pandas>=2.2",
-  "scikit-learn>=1.4",
-  "matplotlib>=3.8",
-  "pyyaml>=6.0",
-  "tensorflow>=2.15",
-  "shap>=0.45",
-  "scipy>=1.12"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+
+authors = [
+    {name = "Ariel Ghislain Kemogne Kamdoum", email = "arielghislain.kemogn@ucalgary.ca"}
 ]
+
+keywords = [
+    "genomics",
+    "variational autoencoder",
+    "representation learning",
+    "explainable AI",
+    "SNP prioritization",
+    "pathway enrichment",
+    "complex disease genetics"
+]
+
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+
+dependencies = [
+    "numpy",
+    "pandas",
+    "scipy",
+    "scikit-learn",
+    "statsmodels",
+    "matplotlib",
+    "tensorflow>=2.12",
+    "polars",
+    "shap",
+    "gseapy",
+    "requests",
+    "tqdm",
+    "pyarrow",
+    "openpyxl"
+]
+
+[project.urls]
+Homepage = "https://github.com/1234-Ariel-code/gvae"
+Repository = "https://github.com/1234-Ariel-code/gvae"
+Issues = "https://github.com/1234-Ariel-code/gvae/issues"
 
 [tool.setuptools]
 packages = ["gvae"]
 
-[tool.setuptools.package-dir]
-gvae = "gvae"
+[tool.black]
+line-length = 100
+target-version = ["py310"]
+```

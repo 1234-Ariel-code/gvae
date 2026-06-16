@@ -74,8 +74,6 @@ Key outputs include:
 * q25/q75 latent representation outputs,
 * SNP attribution files for downstream SNP-to-gene and pathway analyses.
 
-The reviewer-facing version removes old experimental components and keeps only the manuscript-relevant workflow.
-
 ### `gvae/latent_classification.py`
 
 Downstream prediction script using VAE-derived and gVAE-derived latent features.

@@ -13,7 +13,6 @@ dependencies:
   - statsmodels>=0.14
   - pip:
       - tensorflow>=2.15
-      - streamlit>=1.33
       - pyyaml>=6.0
       - polars>=0.20
       - shap>=0.44

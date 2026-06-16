@@ -18,8 +18,9 @@ from tensorflow.keras import layers, Model
 from bed_reader import open_bed
 
 # ----------------------------------------------------------
-# Global config / seeds / GPU & mixed precision
+# Global config / seeds / GPU memory setup
 # ----------------------------------------------------------
+
 SEED = 42
 np.random.seed(SEED)
 tf.random.set_seed(SEED)
@@ -31,9 +32,6 @@ for device in physical_devices:
         tf.config.experimental.set_memory_growth(device, True)
     except Exception:
         pass
-
-# Mixed precision ON by default; can be disabled via --no_mixed_precision
-AUTOTUNE = tf.data.AUTOTUNE
 
 
 # ----------------------------------------------------------

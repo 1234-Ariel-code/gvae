@@ -428,9 +428,9 @@ def build_encoder(original_dim, latent_dim, num_layers):
     return tf.keras.Sequential(layers_list)
 
 
-def build_qgvae_decoder(latent_dim, num_layers, original_dim):
+def build_gvae_decoder(latent_dim, num_layers, original_dim):
     """
-    qgVAE decoder receives concatenated quantile summaries [q25, q75],
+    gVAE decoder receives concatenated quantile summaries [q25, q75],
     so its input dimension is 2 * latent_dim.
     """
     layers_list = [layers.InputLayer(input_shape=(latent_dim * 2,))]
@@ -489,7 +489,7 @@ def kl_divergence(mu, log_var, clip_log_var: bool = False):
 
 
 # ----------------------------------------------------------
-# qgVAE Model  (kept as class VAE for compatibility)
+# gVAE Model  (kept as class VAE for compatibility)
 # ----------------------------------------------------------
 class VAE(Model):
     def __init__(self, original_dim, latent_dim, num_samples=10, num_layers=1,
@@ -501,7 +501,7 @@ class VAE(Model):
         self.clip_log_var = bool(clip_log_var)
 
         self.encoder = build_encoder(original_dim, latent_dim, num_layers)
-        self.decoder_continuous = build_qgvae_decoder(latent_dim, num_layers, original_dim)
+        self.decoder_continuous = build_gvae_decoder(latent_dim, num_layers, original_dim)
 
         self.total_loss_tracker = tf.keras.metrics.Mean(name="total_loss")
         self.recon_loss_tracker = tf.keras.metrics.Mean(name="recon_loss")
@@ -830,13 +830,13 @@ def train_vae_for_disease(
     original_dim = train_data.shape[1]
 
     # -----------------------
-    # 1) qgVAE
+    # 1) gVAE
     # -----------------------
-    qgvae = VAE(original_dim, latent_dim, num_samples=num_samples, num_layers=num_layers,
+    gvae = VAE(original_dim, latent_dim, num_samples=num_samples, num_layers=num_layers,
                 clip_log_var=clip_log_var)
-    qgvae.compile(optimizer=make_optimizer())
+    gvae.compile(optimizer=make_optimizer())
 
-    qg_ckpt = f"{disease_name}_{latent_dim}_{num_samples}_{num_layers}_qgvae.weights.h5"
+    qg_ckpt = f"{disease_name}_{latent_dim}_{num_samples}_{num_layers}_gvae.weights.h5"
     qg_ckpt_cb = tf.keras.callbacks.ModelCheckpoint(
         filepath=qg_ckpt, save_weights_only=True, monitor="val_loss",
         mode="min", save_best_only=True, verbose=1
@@ -845,14 +845,14 @@ def train_vae_for_disease(
         monitor="val_loss", patience=5, restore_best_weights=True
     )
 
-    print(f"[INFO] Train qgVAE: {disease_name} LD={latent_dim} K={num_samples} L={num_layers}")
-    qg_history = qgvae.fit(
+    print(f"[INFO] Train gVAE: {disease_name} LD={latent_dim} K={num_samples} L={num_layers}")
+    qg_history = gvae.fit(
         train_ds, epochs=num_epochs, validation_data=val_ds,
         callbacks=[qg_ckpt_cb, qg_early_cb], verbose=2
     )
-    qgvae.load_weights(qg_ckpt)
+    gvae.load_weights(qg_ckpt)
 
-    qg_recon, _ = qgvae.predict(data, batch_size=batch_size, verbose=1)
+    qg_recon, _ = gvae.predict(data, batch_size=batch_size, verbose=1)
     qg_recon = qg_recon.astype("float32")
     qg_r2 = evaluate_r_square(data, qg_recon)
     qg_mse = evaluate_mse(data, qg_recon)
@@ -860,15 +860,15 @@ def train_vae_for_disease(
     qg_r2_snp_mean = r2_mean_per_snp(data, qg_recon)   # mean per-SNP R²
     qg_r2_snp_median = r2_median_per_snp(data, qg_recon)
     qg_ns_mean, qg_ns_median, qg_rob = compute_input_noise_robustness(
-        qgvae, data, eps=0.05, max_n=5000, batch_size=batch_size
+        gvae, data, eps=0.05, max_n=5000, batch_size=batch_size
     )
 
     print(
-    f"[qgVAE] R2_global={qg_r2:.4f} "
+    f"[gVAE] R2_global={qg_r2:.4f} "
     f"MSE={qg_mse:.6f} NoiseSens_mean={qg_ns_mean:.6f} Robust={qg_rob:.6f}"
     )
 
-    #print(f"[qgVAE] R2={qg_r2:.4f} f"R2_flat_sklearn={qg_r2_flat:.4f} " f"R2_snp_mean={qg_r2_snp_mean:.4f} " f"R2_snp_median={qg_r2_snp_median:.4f} " MSE={qg_mse:.6f} NoiseSens_mean={qg_ns_mean:.6f} Robust={qg_rob:.6f}")
+    #print(f"[gVAE] R2={qg_r2:.4f} f"R2_flat_sklearn={qg_r2_flat:.4f} " f"R2_snp_mean={qg_r2_snp_mean:.4f} " f"R2_snp_median={qg_r2_snp_median:.4f} " MSE={qg_mse:.6f} NoiseSens_mean={qg_ns_mean:.6f} Robust={qg_rob:.6f}")
 
     # -----------------------
     # 2) BaselineVAE (NS=1)
@@ -969,7 +969,7 @@ def train_vae_for_disease(
 
     # Save per-run summary
     summary_rows = [
-        {"model": f"qgVAE_NS{num_samples}", "R2": qg_r2, "MSE": qg_mse,
+        {"model": f"gVAE_NS{num_samples}", "R2": qg_r2, "MSE": qg_mse,
          "NoiseSens_meanRelChange": qg_ns_mean, "NoiseSens_medianRelChange": qg_ns_median,
          "Robustness_invNoiseSens": qg_rob},
         {"model": "BaselineVAE_NS1", "R2": base_r2, "MSE": base_mse,
@@ -989,7 +989,7 @@ def train_vae_for_disease(
 # Main / CLI
 # ----------------------------------------------------------
 def main():
-    parser = argparse.ArgumentParser(description="Train qgVAE/Baseline/Beta directly from BED.")
+    parser = argparse.ArgumentParser(description="Train gVAE/Baseline/Beta directly from BED.")
     parser.add_argument("--disease", type=str, required=True)
     parser.add_argument("--num_sample", type=int, required=True)
     parser.add_argument("--latent_dim", type=int, required=True)
@@ -1016,8 +1016,8 @@ def main():
     else:
         betas = [args.beta]
 
-    # Skip guard for qgVAE weights
-    #weights_file = f"{args.disease}_{args.latent_dim}_{args.num_sample}_{args.num_layer}_qgvae.weights.h5"
+    # Skip guard for gVAE weights
+    #weights_file = f"{args.disease}_{args.latent_dim}_{args.num_sample}_{args.num_layer}_gvae.weights.h5"
     #if os.path.exists(weights_file):
     #    print(f"[SKIP] Found weights: {weights_file}")
     #    with open("finished_jobs.txt", "a") as f:
@@ -1039,7 +1039,7 @@ def main():
     with open("finished_jobs.txt", "a") as f:
         f.write(f"{args.disease}_{args.num_sample}_{args.latent_dim}_{args.num_layer}\n")
 
-    print(f"[DONE] {args.disease}: qgVAE R2={r2:.4f} MSE={mse:.6f} Robust={rob:.6f}")
+    print(f"[DONE] {args.disease}: gVAE R2={r2:.4f} MSE={mse:.6f} Robust={rob:.6f}")
 
 
 if __name__ == "__main__":

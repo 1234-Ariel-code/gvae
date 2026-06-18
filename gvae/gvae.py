@@ -27,7 +27,6 @@ from gvae.metrics import (
     r2_median_per_snp,
 )
 
-
 SEED = 42
 AUTOTUNE = tf.data.AUTOTUNE
 np.random.seed(SEED)
@@ -242,7 +241,6 @@ def load_data_bed(
         return arr, row_idx, col_idx, kept_snp_ids
     return arr
 
-
 # ---------------------------------------------------------------------
 # Dataset and robustness helpers
 # ---------------------------------------------------------------------
@@ -302,7 +300,6 @@ def make_optimizer():
         )
     )
 
-
 def evaluate_reconstruction(model, data: np.ndarray, batch_size: int):
     pred = model.predict(data, batch_size=batch_size, verbose=1)
     recon = pred[0] if isinstance(pred, (tuple, list)) else pred
@@ -316,7 +313,6 @@ def evaluate_reconstruction(model, data: np.ndarray, batch_size: int):
         "R2_snp_median": r2_median_per_snp(data, recon),
         "reconstruction": recon,
     }
-
 
 # ---------------------------------------------------------------------
 # Training driver
@@ -601,7 +597,6 @@ def main():
         f.write(f"{args.disease}_{args.num_sample}_{args.latent_dim}_{args.num_layer}\n")
 
     print(f"[DONE] {args.disease}: gVAE R2={r2:.4f} MSE={mse:.6f} Robust={rob:.6f}")
-
 
 if __name__ == "__main__":
     main()

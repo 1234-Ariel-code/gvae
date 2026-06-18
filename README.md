@@ -22,13 +22,43 @@ Genome-wide genotype matrices are high-dimensional, sparse, and often available 
 6. performs pathway enrichment analysis, and
 7. supports downstream classification and regression analyses.
 
-The main gVAE representation uses posterior latent sampling followed by quantile aggregation. In particular, the gVAE feature representation is based on the concatenation of q25 and q75 posterior latent quantiles.
+
+
+
+
+
+# gVAE: Genomic Variational Autoencoder
+
+<img width="1376" height="768" alt="gVAE overview image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
+
+This repository contains the manuscript-facing implementation of **gVAE**, a genomic variational autoencoder framework for stable and interpretable representation learning in high-dimensional genotype data with moderate sample sizes.
+
+The code supports model training, latent representation extraction, SNP prioritization, downstream prediction, SNP-to-gene mapping, pathway enrichment, disease-gene relevance analysis, and reproducibility utilities used in the accompanying manuscript.
+
+## Overview
+
+<img width="1300" height="1150" alt="gVAE workflow overview" src="https://github.com/user-attachments/assets/086ca913-5a1e-4477-bcd3-efc68a30ed2f" />
+
+Genome-wide genotype matrices are high-dimensional, sparse, and often available for cohorts with limited sample sizes. The goal of this repository is to provide a reproducible implementation of a representation learning workflow that:
+
+1. trains VAE/gVAE models on genotype data,
+2. extracts stable latent representations,
+3. identifies latent-variable-associated SNPs using attribution methods,
+4. maps prioritized SNPs to genes,
+5. evaluates disease relevance and drug-target support,
+6. performs pathway enrichment analysis, and
+7. supports downstream classification and regression analyses.
+
+The main gVAE representation uses posterior latent sampling followed by quantile-gated aggregation. In the reported implementation, each individual is represented by the concatenation of the q25 and q75 posterior latent quantiles.
 
 ## Repository structure
 
 ```text
 gvae/
 ├── gvae/
+│   ├── __init__.py
+│   ├── model.py
+│   ├── metrics.py
 │   ├── gvae.py
 │   ├── gvae.slurm
 │   ├── snp_prioritization.py
@@ -48,7 +78,33 @@ gvae/
 └── LICENSE
 ```
 
-## Main scripts
+## Main scripts and modules
+
+### `gvae/model.py`
+
+Shared model-definition module used by the main training and SNP-prioritization scripts. This file defines the gVAE, Vanilla VAE, and beta-VAE architectures so that model training and biological interpretation use the same implementation.
+
+Key components include:
+
+* dynamic encoder construction,
+* baseline decoder construction,
+* gVAE q25/q75 decoder construction,
+* posterior sampling and quantile-gated aggregation,
+* gVAE, Vanilla VAE, and beta-VAE model classes,
+* reconstruction and KL-regularized training steps.
+
+### `gvae/metrics.py`
+
+Shared evaluation utilities for reconstruction and prediction metrics. This avoids duplicated metric definitions across the main scripts.
+
+Key utilities include:
+
+* NaN handling,
+* mean squared error,
+* global R²,
+* flattened R²,
+* mean per-SNP R²,
+* median per-SNP R².
 
 ### `gvae/gvae.py`
 
@@ -57,11 +113,11 @@ Main model-training script for the VAE/gVAE architecture. This script trains the
 Key functions include:
 
 * genotype matrix loading,
-* VAE/gVAE model construction,
-* latent representation learning,
+* VAE/gVAE model training,
 * reconstruction and KL-loss optimization,
-* model configuration across latent dimensions, number of samples, and layer depths,
-* saving trained outputs for downstream analysis.
+* model configuration across latent dimensions, posterior sample numbers, and layer depths,
+* robustness evaluation under input perturbation,
+* saving trained outputs and summary metrics for downstream analysis.
 
 ### `gvae/snp_prioritization.py`
 
@@ -189,33 +245,35 @@ Disease-gene resources:
   DisGeNET TSV file or API access
 ```
 
-The exact file paths should be adjusted in the command-line arguments or SLURM scripts.
+The exact file paths should be adjusted in the command-line arguments or SLURM scripts. And, after installation, the main Python workflows can be run from the repository root using module-style commands such as `python -m gvae.gvae` and `python -m gvae.snp_prioritization`.
 
 ## Example workflows
 
 ### 1. Train gVAE model
 
 ```bash
-python gvae/gvae.py \
+python -m gvae.gvae \
   --disease T2D \
-  --base_path /path/to/genotype/files \
+  --bed_prefix /path/to/plink/T2D \
   --latent_dim 100 \
-  --num_samples 150 \
-  --num_layers 4 \
-  --out_root /path/to/outputs
+  --num_sample 150 \
+  --num_layer 4 \
+  --epochs 50 \
+  --batch_size 256
 ```
 
 ### 2. Prioritize SNPs using latent-variable attribution
 
 ```bash
-python gvae/snp_prioritization.py \
+python -m gvae.snp_prioritization \
   --disease T2D \
   --base_path /path/to/genotype/files \
   --latent_dim 100 \
   --num_samples 150 \
   --num_layers 4 \
   --shap_top_k 10 \
-  --out_root /path/to/xai_outputs
+  --tped_file /path/to/T2D_origin.tped \
+  --output_dir /path/to/xai_outputs
 ```
 
 ### 3. Run latent-space classification or regression
@@ -262,14 +320,16 @@ Depending on the script, outputs may include:
 
 ```text
 Model outputs:
-  trained model files
+  trained model weights
   reconstruction summaries
+  robustness summaries
   latent representations
 
 XAI outputs:
   top SNPs per latent variable
   SNP attribution summaries
   q25/q75 latent feature files
+  SHAP-weighted genotype matrices
 
 Prediction outputs:
   classification or regression metrics
@@ -283,6 +343,7 @@ Gene/pathway outputs:
   LV-by-pathway heatmaps
   LV bubble plots
   DisGeNET disease-gene relevance summaries
+  target-support tables
 ```
 
 ## Reproducibility
@@ -315,7 +376,8 @@ Throughout the repository:
 * `LV` denotes latent variable.
 * `LD` denotes latent dimension in configuration names.
 * `NS` denotes the number of posterior latent samples used for gVAE quantile aggregation.
-* `K` denotes the number of top SNPs retained per latent variable in attribution outputs.
+* `L` denotes the number of encoder/decoder hidden layers.
+* `shap_top_k` denotes the number of top SNPs retained per latent variable in attribution outputs.
 * gVAE features are defined using q25/q75 posterior latent quantiles.
 * GWAS-top SNP filtering is structured filtering based on GWAS ranking, not random SNP downsampling.
 

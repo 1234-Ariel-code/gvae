@@ -72,9 +72,11 @@ gvae/
 
 **Cluster execution templates**
 
-* [`gvae/gvae.slurm`](gvae/gvae.slurm) — SLURM template for model training.
-* [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm) — SLURM template for enrichment analysis.
-* [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm) — SLURM template for GWAS-XAI comparison.
+* [`gvae/gvae.slurm`](gvae/gvae.slurm) — SLURM template for model training. This is an example cluster submission script for model training.
+* [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm) — SLURM template for enrichment analysis. This is an example cluster submission script for gene/pathway enrichment.
+* [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm) — SLURM template for GWAS-XAI comparison. This is an example cluster submission script for GWAS-XAI comparison.
+
+These files provide example cluster-job configurations and should be edited to match the local computing environment, data paths, memory limits, and runtime requirements.
 
 ### Repository-level files
 
@@ -86,18 +88,6 @@ gvae/
 * [`Makefile`](Makefile) — helper commands for installation, cleanup, and checks.
 * [`CITATION.cff`](CITATION.cff) — citation metadata.
 * [`LICENSE`](LICENSE) — software license.
-
----
-
-## SLURM scripts
-
-The repository includes SLURM submission scripts for running analyses on high-performance computing systems:
-
-* [`gvae/gvae.slurm`](gvae/gvae.slurm): example cluster submission script for model training.
-* [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm): example cluster submission script for gene/pathway enrichment.
-* [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm): example cluster submission script for GWAS-XAI comparison.
-
-These files provide example cluster-job configurations and should be edited to match the local computing environment, data paths, memory limits, and runtime requirements.
 
 ---
 

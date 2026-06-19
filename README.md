@@ -71,21 +71,29 @@ gvae/
 
 ## Main scripts and modules
 
-[![gvae/model.py](https://img.shields.io/badge/gvae%2Fmodel.py-model%20architecture-555555?style=flat-square)](gvae/model.py) <sub>Shared model-definition module used by the training and SNP-prioritization workflows. Defines the gVAE, Vanilla VAE, and beta-VAE architectures.</sub>
+[![gvae/model.py](https://img.shields.io/badge/gvae%2Fmodel.py-model%20architecture-4f5d75?style=flat-square)](gvae/model.py)  
+Shared model-definition module used by the training and SNP-prioritization workflows. Defines the gVAE, Vanilla VAE, and beta-VAE architectures.
 
-[![gvae/metrics.py](https://img.shields.io/badge/gvae%2Fmetrics.py-metric%20utilities-555555?style=flat-square)](gvae/metrics.py) <sub>Shared evaluation utilities for reconstruction and prediction metrics, including MSE and R² summaries.</sub>
+[![gvae/metrics.py](https://img.shields.io/badge/gvae%2Fmetrics.py-metric%20utilities-4f5d75?style=flat-square)](gvae/metrics.py)  
+Shared evaluation utilities for reconstruction and prediction metrics, including MSE and R² summaries.
 
-[![gvae/gvae.py](https://img.shields.io/badge/gvae%2Fgvae.py-main%20training%20script-555555?style=flat-square)](gvae/gvae.py) <sub>Main model-training script for the VAE/gVAE workflow, including training, reconstruction, robustness evaluation, and output generation.</sub>
+[![gvae/gvae.py](https://img.shields.io/badge/gvae%2Fgvae.py-main%20training%20script-4f5d75?style=flat-square)](gvae/gvae.py)  
+Main model-training script for the VAE/gVAE workflow, including training, reconstruction, robustness evaluation, and output generation.
 
-[![gvae/snp\_prioritization.py](https://img.shields.io/badge/gvae%2Fsnp__prioritization.py-SNP%20attribution%20and%20XAI-555555?style=flat-square)](gvae/snp_prioritization.py) <sub>SHAP-based SNP prioritization pipeline linking latent variables back to input SNPs for downstream biological interpretation.</sub>
+[![gvae/snp_prioritization.py](https://img.shields.io/badge/gvae%2Fsnp__prioritization.py-SNP%20attribution%20and%20XAI-4f5d75?style=flat-square)](gvae/snp_prioritization.py)  
+SHAP-based SNP prioritization pipeline linking latent variables back to input SNPs for downstream biological interpretation.
 
-[![gvae/latent\_classification.py](https://img.shields.io/badge/gvae%2Flatent__classification.py-downstream%20prediction-555555?style=flat-square)](gvae/latent_classification.py) <sub>Evaluates VAE-derived and gVAE-derived latent features in downstream classification and regression tasks.</sub>
+[![gvae/latent_classification.py](https://img.shields.io/badge/gvae%2Flatent__classification.py-downstream%20prediction-4f5d75?style=flat-square)](gvae/latent_classification.py)  
+Evaluates VAE-derived and gVAE-derived latent features in downstream classification and regression tasks.
 
-[![gvae/gene-pathway\_enrichment.py](https://img.shields.io/badge/gvae%2Fgene--pathway__enrichment.py-gene%20and%20pathway%20analysis-555555?style=flat-square)](gvae/gene-pathway_enrichment.py) <sub>Maps prioritized SNPs to genes and performs pathway enrichment and disease-gene relevance analysis.</sub>
+[![gvae/gene-pathway_enrichment.py](https://img.shields.io/badge/gvae%2Fgene--pathway__enrichment.py-gene%20and%20pathway%20analysis-4f5d75?style=flat-square)](gvae/gene-pathway_enrichment.py)  
+Maps prioritized SNPs to genes and performs pathway enrichment and disease-gene relevance analysis.
 
-[![gvae/build\_target\_support\_table.py](https://img.shields.io/badge/gvae%2Fbuild__target__support__table.py-target%20support%20tables-555555?style=flat-square)](gvae/build_target_support_table.py) <sub>Builds gene-level support tables from external disease-gene and drug-target resources.</sub>
+[![gvae/build_target_support_table.py](https://img.shields.io/badge/gvae%2Fbuild__target__support__table.py-target%20support%20tables-4f5d75?style=flat-square)](gvae/build_target_support_table.py)  
+Builds gene-level support tables from external disease-gene and drug-target resources.
 
-[![gvae/gwas-xai.R](https://img.shields.io/badge/gvae%2Fgwas--xai.R-GWAS%20vs%20gVAE--XAI%20comparison-555555?style=flat-square)](gvae/gwas-xai.R) <sub>R script for matched-budget comparison between GWAS-ranked signals and gVAE-XAI-prioritized signals.</sub>
+[![gvae/gwas-xai.R](https://img.shields.io/badge/gvae%2Fgwas--xai.R-GWAS%20vs%20gVAE--XAI%20comparison-4f5d75?style=flat-square)](gvae/gwas-xai.R)  
+R script for matched-budget comparison between GWAS-ranked signals and gVAE-XAI-prioritized signals.
 
 ---
 

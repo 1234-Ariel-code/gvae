@@ -56,7 +56,7 @@ gvae/
 **Shared architecture and utilities**
 
 * [`gvae/__init__.py`](gvae/__init__.py) — package initializer.
-* [![gvae/model.py](https://img.shields.io/badge/gvae%2Fmodel.py-model%20architecture-4f5d75?style=flat-square)](gvae/model.py) — shared gVAE, Vanilla VAE, and beta-VAE model definitions.
+* [`gvae/model.py`](gvae/model.py) — shared gVAE, Vanilla VAE, and beta-VAE model definitions.
 * [`gvae/metrics.py`](gvae/metrics.py) — shared reconstruction and prediction metric utilities.
 
 **Model training and representation learning**

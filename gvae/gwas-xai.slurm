@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=dynamic_gwas_repr_tsv
-#SBATCH --output=/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/logs/%x_%j.out
-#SBATCH --error=/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/logs/%x_%j.err
+#SBATCH --output=/work/long_lab/Ariel_Kemogne/Representation_learning/logs/%x_%j.out
+#SBATCH --error=/work/long_lab/Ariel_Kemogne/Representation_learning/logs/%x_%j.err
 #SBATCH --time=7-00:00:00
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=64G
@@ -10,15 +10,15 @@
 
 set -euo pipefail
 
-OUT_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/_dynamic_gwas_comparison"
-LOG_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/logs"
+OUT_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/_dynamic_gwas_comparison"
+LOG_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/logs"
 
 mkdir -p "${OUT_DIR}" "${LOG_DIR}"
 
-R_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/gwas-xai.R"
-PY_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/build_target_support_table.py"
+R_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/gwas-xai.R"
+PY_SCRIPT="/work/long_lab/Ariel_Kemogne/Representation_learning/build_target_support_table.py"
 
-LATENT_ROOT="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/latent"
+LATENT_ROOT="/work/long_lab/Ariel_Kemogne/Representation_learning/latent"
 
 # IMPORTANT:
 # this folder should contain files like:

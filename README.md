@@ -9,6 +9,9 @@
   <strong>Stable and interpretable genomic representation learning for high-dimensional genotype data with moderate sample sizes.</strong>
 </p>
 
+> **Manuscript summary**
+> Representation learning is powerful for genomic discovery, but population-scale genotype datasets remain challenging because they combine very high dimensionality with moderate sample sizes. gVAE addresses this setting by using a quantile-gated variational autoencoder that integrates multiple posterior latent realizations into a more stable representation. Across 18 disease and trait datasets, gVAE improves latent stability and predictive performance relative to established VAE baselines while preserving reconstruction fidelity. Coupled with explainable AI, SNP-to-gene mapping, and pathway analysis, gVAE recovers disease- and drug-relevant signals, recurrent pathway programs, and interpretable disease mechanisms, positioning its latent variables as biological coordinates rather than opaque compression axes.
+
 ---
 
 ## About
@@ -34,9 +37,6 @@ Genome-wide genotype matrices are high-dimensional, sparse, and often available 
 5. evaluates disease relevance and drug-target support,
 6. performs pathway enrichment analysis, and
 7. supports downstream classification and regression analyses.
-
-> **Manuscript summary**
-> Representation learning is powerful for genomic discovery, but population-scale genotype datasets remain challenging because they combine very high dimensionality with moderate sample sizes. gVAE addresses this setting by using a quantile-gated variational autoencoder that integrates multiple posterior latent realizations into a more stable representation. Across 18 disease and trait datasets, gVAE improves latent stability and predictive performance relative to established VAE baselines while preserving reconstruction fidelity. Coupled with explainable AI, SNP-to-gene mapping, and pathway analysis, gVAE recovers disease- and drug-relevant signals, recurrent pathway programs, and interpretable disease mechanisms, positioning its latent variables as biological coordinates rather than opaque compression axes.
 
 
 ---

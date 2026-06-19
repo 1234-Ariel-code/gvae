@@ -1,3 +1,4 @@
+
 # gVAE: Genomic Variational Autoencoder
 
 <p align="center">
@@ -5,7 +6,7 @@
 </p>
 
 <p align="center">
-  <b>Stable and interpretable genomic representation learning for high-dimensional genotype data with moderate sample sizes.</b>
+  <strong>Stable and interpretable genomic representation learning for high-dimensional genotype data with moderate sample sizes.</strong>
 </p>
 
 ---
@@ -34,8 +35,8 @@ Genome-wide genotype matrices are high-dimensional, sparse, and often available 
 6. performs pathway enrichment analysis, and
 7. supports downstream classification and regression analyses.
 
-> **gVAE representation.**
-> The main gVAE representation uses posterior latent sampling followed by quantile-gated aggregation. In the reported implementation, each individual is represented by the concatenation of the **q25** and **q75** posterior latent quantiles.
+> **gVAE representation**
+> The main gVAE representation uses posterior latent sampling followed by quantile-gated aggregation. In the reported implementation, each individual is represented by the concatenation of the q25 and q75 posterior latent quantiles.
 
 ---
 
@@ -70,24 +71,9 @@ gvae/
 
 ## Main scripts and modules
 
-| File                                                                       | Purpose                   | Main role in the workflow                                                                     |
-| -------------------------------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
-| [`gvae/model.py`](gvae/model.py)                                           | Shared model architecture | Defines the gVAE, Vanilla VAE, and beta-VAE model classes used by training and XAI workflows. |
-| [`gvae/metrics.py`](gvae/metrics.py)                                       | Shared metric utilities   | Provides reconstruction and prediction metrics such as MSE and R² in one reusable location.   |
-| [`gvae/gvae.py`](gvae/gvae.py)                                             | Main model training       | Trains gVAE, Vanilla VAE, and beta-VAE models from genotype data.                             |
-| [`gvae/snp_prioritization.py`](gvae/snp_prioritization.py)                 | SNP attribution and XAI   | Links learned latent variables back to input SNPs using SHAP-based attribution.               |
-| [`gvae/latent_classification.py`](gvae/latent_classification.py)           | Downstream prediction     | Evaluates latent features through classification or regression tasks.                         |
-| [`gvae/gene-pathway_enrichment.py`](gvae/gene-pathway_enrichment.py)       | Biological interpretation | Maps prioritized SNPs to genes and performs pathway and disease-gene enrichment analyses.     |
-| [`gvae/build_target_support_table.py`](gvae/build_target_support_table.py) | Target-support summaries  | Builds gene-level support tables from disease-gene or drug-target resources.                  |
-| [`gvae/gwas-xai.R`](gvae/gwas-xai.R)                                       | GWAS-XAI comparison       | Compares GWAS-ranked signals and gVAE-XAI-prioritized signals under matched SNP budgets.      |
-
----
-
 ### [`gvae/model.py`](gvae/model.py)
 
-> **Shared model-definition module used by the main training and SNP-prioritization scripts.**
-
-This file defines the gVAE, Vanilla VAE, and beta-VAE architectures so that model training and biological interpretation use the same implementation.
+Shared model-definition module used by the main training and SNP-prioritization scripts. This file defines the gVAE, Vanilla VAE, and beta-VAE architectures so that model training and biological interpretation use the same implementation.
 
 Key components include:
 
@@ -102,9 +88,7 @@ Key components include:
 
 ### [`gvae/metrics.py`](gvae/metrics.py)
 
-> **Shared evaluation utilities for reconstruction and prediction metrics.**
-
-This avoids duplicated metric definitions across the main scripts.
+Shared evaluation utilities for reconstruction and prediction metrics. This avoids duplicated metric definitions across the main scripts.
 
 Key utilities include:
 
@@ -119,9 +103,7 @@ Key utilities include:
 
 ### [`gvae/gvae.py`](gvae/gvae.py)
 
-> **Main model-training script for the VAE/gVAE architecture.**
-
-This script trains the encoder-decoder model on genotype data and supports the dynamic latent-dimension and layer-depth configurations used in the manuscript.
+Main model-training script for the VAE/gVAE architecture. This script trains the encoder-decoder model on genotype data and supports the dynamic latent-dimension and layer-depth configurations used in the manuscript.
 
 Key functions include:
 
@@ -136,9 +118,7 @@ Key functions include:
 
 ### [`gvae/snp_prioritization.py`](gvae/snp_prioritization.py)
 
-> **SHAP-based SNP prioritization pipeline.**
-
-This script links trained latent representations back to input SNPs by estimating SNP-level attributions for each latent variable.
+SHAP-based SNP prioritization pipeline. This script links trained latent representations back to input SNPs by estimating SNP-level attributions for each latent variable.
 
 Key outputs include:
 
@@ -151,7 +131,7 @@ Key outputs include:
 
 ### [`gvae/latent_classification.py`](gvae/latent_classification.py)
 
-> **Downstream prediction script using VAE-derived and gVAE-derived latent features.**
+Downstream prediction script using VAE-derived and gVAE-derived latent features.
 
 This script trains a VAE encoder directly within the script, extracts latent features, and evaluates classification or regression performance using downstream neural prediction models.
 
@@ -167,7 +147,7 @@ The script supports binary classification and quantitative-trait regression and 
 
 ### [`gvae/gene-pathway_enrichment.py`](gvae/gene-pathway_enrichment.py)
 
-> **End-to-end SHAP-to-biology interpretation pipeline.**
+End-to-end SHAP-to-biology interpretation pipeline.
 
 This script connects prioritized SNPs to biological interpretation through:
 
@@ -186,9 +166,7 @@ For reproducibility, DisGeNET TSV mode is recommended. API mode is also supporte
 
 ### [`gvae/build_target_support_table.py`](gvae/build_target_support_table.py)
 
-> **Utility script for building gene-level target-support tables.**
-
-This script is used to summarize support between prioritized genes and external biological resources, such as disease-gene or drug-target annotations.
+Utility script for building gene-level target-support tables. This script is used to summarize support between prioritized genes and external biological resources, such as disease-gene or drug-target annotations.
 
 Typical use cases include:
 
@@ -201,7 +179,7 @@ Typical use cases include:
 
 ### [`gvae/gwas-xai.R`](gvae/gwas-xai.R)
 
-> **R-based analysis script for comparing GWAS-ranked signals and gVAE-XAI-prioritized signals.**
+R-based analysis script for comparing GWAS-ranked signals and gVAE-XAI-prioritized signals.
 
 This script supports gene-level and disease-level comparisons between GWAS-derived and gVAE-derived signals, including matched-budget analyses and summary visualizations.
 
@@ -211,11 +189,9 @@ This script supports gene-level and disease-level comparisons between GWAS-deriv
 
 The repository includes SLURM submission scripts for running analyses on high-performance computing systems:
 
-| File                                                                       | Purpose                                                        |
-| -------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| [`gvae/gvae.slurm`](gvae/gvae.slurm)                                       | Example cluster submission script for model training.          |
-| [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm) | Example cluster submission script for gene/pathway enrichment. |
-| [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm)                               | Example cluster submission script for GWAS-XAI comparison.     |
+* [`gvae/gvae.slurm`](gvae/gvae.slurm): example cluster submission script for model training.
+* [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm): example cluster submission script for gene/pathway enrichment.
+* [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm): example cluster submission script for GWAS-XAI comparison.
 
 These files provide example cluster-job configurations and should be edited to match the local computing environment, data paths, memory limits, and runtime requirements.
 
@@ -455,15 +431,13 @@ For reviewer-facing reproducibility, the recommended workflow is:
 
 Throughout the repository:
 
-| Term               | Meaning                                                                       |
-| ------------------ | ----------------------------------------------------------------------------- |
-| `LV`               | Latent variable.                                                              |
-| `LD`               | Latent dimension in configuration names.                                      |
-| `NS`               | Number of posterior latent samples used for gVAE quantile aggregation.        |
-| `L`                | Number of encoder/decoder hidden layers.                                      |
-| `shap_top_k`       | Number of top SNPs retained per latent variable in attribution outputs.       |
-| q25/q75            | Posterior latent quantiles defining the reported gVAE feature representation. |
-| GWAS-top filtering | Structured filtering based on GWAS ranking, not random SNP downsampling.      |
+* `LV` denotes latent variable.
+* `LD` denotes latent dimension in configuration names.
+* `NS` denotes the number of posterior latent samples used for gVAE quantile aggregation.
+* `L` denotes the number of encoder/decoder hidden layers.
+* `shap_top_k` denotes the number of top SNPs retained per latent variable in attribution outputs.
+* q25/q75 denote the posterior latent quantiles defining the reported gVAE feature representation.
+* GWAS-top SNP filtering denotes structured filtering based on GWAS ranking, not random SNP downsampling.
 
 ---
 

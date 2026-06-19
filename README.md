@@ -21,15 +21,7 @@ The code supports model training, latent representation extraction, SNP prioriti
   <img width="1300" height="1150" alt="gVAE workflow overview" src="https://github.com/user-attachments/assets/086ca913-5a1e-4477-bcd3-efc68a30ed2f" />
 </p>
 
-Genome-wide genotype matrices are high-dimensional, sparse, and often available for cohorts with limited sample sizes. The goal of this repository is to provide a reproducible implementation of a representation learning workflow that:
-
-1. trains VAE/gVAE models on genotype data,
-2. extracts stable latent representations,
-3. identifies latent-variable-associated SNPs using attribution methods,
-4. maps prioritized SNPs to genes,
-5. evaluates disease relevance and drug-target support,
-6. performs pathway enrichment analysis, and
-7. supports downstream classification and regression analyses.
+Genome-wide genotype matrices are high-dimensional, sparse, and often available for cohorts with limited sample sizes. The goal of this repository is to provide a reproducible implementation of a representation learning workflow that: 1. trains VAE/gVAE models on genotype data, 2. extracts stable latent representations, 3. identifies latent-variable-associated SNPs using attribution methods, 4. maps prioritized SNPs to genes, 5. evaluates disease relevance and drug-target support, 6. performs pathway enrichment analysis, and 7. supports downstream classification and regression analyses.
 
 
 ---

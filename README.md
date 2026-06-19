@@ -5,12 +5,6 @@
   <img width="1376" height="768" alt="gVAE overview image" src="https://github.com/user-attachments/assets/f4428d27-8fbd-4ee0-a365-c00bfb8c16a2" />
 </p>
 
-<p align="center">
-  <strong>Stable and interpretable genomic representation learning for high-dimensional genotype data with moderate sample sizes.</strong>
-</p>
-
-> Representation learning is powerful for genomic discovery, but population-scale genotype datasets remain challenging because they combine very high dimensionality with moderate sample sizes. gVAE addresses this setting by using a quantile-gated variational autoencoder that integrates multiple posterior latent realizations into a more stable representation. Across 18 disease and trait datasets, gVAE improves latent stability and predictive performance relative to established VAE baselines while preserving reconstruction fidelity. Coupled with explainable AI, SNP-to-gene mapping, and pathway analysis, gVAE recovers disease- and drug-relevant signals, recurrent pathway programs, and interpretable disease mechanisms, positioning its latent variables as biological coordinates rather than opaque compression axes.
-
 ---
 
 ## About

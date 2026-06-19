@@ -52,16 +52,16 @@ TAG="LD${LD}_NS${NS}_L${L}_K${K}"
 ############################
 # Paths
 ############################
-BASE_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/${DISEASE}"
-CODE_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/AJHG/VAE_projs"
+BASE_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/${DISEASE}"
+CODE_DIR="/work/long_lab/Ariel_Kemogne/Representation_learning/VAE_projs"
 OUT_DIR="${BASE_DIR}/pathway_outputs"
 
 # Your mapping resources
-S2G="/work/long_lab/Ariel_Kemogne/Representation_learning/eSPRESSO/${DISEASE}/combined_cS2G.tsv"
+S2G="/work/long_lab/Ariel_Kemogne/Representation_learning/${DISEASE}/combined_cS2G.tsv"
 BIM="/work/long_lab/for_Ariel/${DISEASE}.bim"
 
 # DisGeNET consolidated TSV (your local dump)
-DISGENET_TSV="/work/long_lab/Ariel_Kemogne/Representation_learning/eSPRESSO/${DISEASE}/consolidated.tsv"
+DISGENET_TSV="/work/long_lab/Ariel_Kemogne/Representation_learning/${DISEASE}/consolidated.tsv"
 
 PY="${CODE_DIR}/gene-pathway_enrichment.py"
 # PY="${CODE_DIR}/relevance.py"

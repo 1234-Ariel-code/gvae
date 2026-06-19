@@ -43,6 +43,55 @@ Genome-wide genotype matrices are high-dimensional, sparse, and often available 
 
 ## Repository structure
 
+The repository is organized around a small set of manuscript-facing scripts, shared model utilities, reproducibility files, and cluster execution templates.
+
+### Core Python package
+
+The main implementation lives in [`gvae/`](gvae/).
+
+```text
+gvae/
+```
+
+**Shared architecture and utilities**
+
+* [`gvae/__init__.py`](gvae/__init__.py) — package initializer.
+* [`gvae/model.py`](gvae/model.py) — shared gVAE, Vanilla VAE, and beta-VAE model definitions.
+* [`gvae/metrics.py`](gvae/metrics.py) — shared reconstruction and prediction metric utilities.
+
+**Model training and representation learning**
+
+* [`gvae/gvae.py`](gvae/gvae.py) — main model-training entry point.
+* [`gvae/latent_classification.py`](gvae/latent_classification.py) — downstream classification and regression from latent features.
+
+**Interpretability and biological analysis**
+
+* [`gvae/snp_prioritization.py`](gvae/snp_prioritization.py) — SHAP-based SNP prioritization from latent variables.
+* [`gvae/gene-pathway_enrichment.py`](gvae/gene-pathway_enrichment.py) — SNP-to-gene mapping, pathway enrichment, and disease-gene relevance analysis.
+* [`gvae/build_target_support_table.py`](gvae/build_target_support_table.py) — gene-level disease and drug-target support summaries.
+* [`gvae/gwas-xai.R`](gvae/gwas-xai.R) — matched-budget comparison of GWAS-ranked and gVAE-XAI-prioritized signals.
+
+**Cluster execution templates**
+
+* [`gvae/gvae.slurm`](gvae/gvae.slurm) — SLURM template for model training.
+* [`gvae/gene-pathway_enrichment.slurm`](gvae/gene-pathway_enrichment.slurm) — SLURM template for enrichment analysis.
+* [`gvae/gwas-xai.slurm`](gvae/gwas-xai.slurm) — SLURM template for GWAS-XAI comparison.
+
+### Repository-level files
+
+* [`README.md`](README.md) — repository overview and usage guide.
+* [`reproducibility.md`](reproducibility.md) — reproducibility notes and recommended workflow.
+* [`requirements.txt`](requirements.txt) — Python package requirements.
+* [`environment.yml`](environment.yml) — Conda environment specification.
+* [`pyproject.toml`](pyproject.toml) — package metadata and editable-install configuration.
+* [`Makefile`](Makefile) — helper commands for installation, cleanup, and checks.
+* [`CITATION.cff`](CITATION.cff) — citation metadata.
+* [`LICENSE`](LICENSE) — software license.
+
+---
+
+## Repository structure
+
 ```text
 gvae/
 ├── gvae/

@@ -71,7 +71,8 @@ gvae/
 
 ## Main scripts and modules
 
-### [`gvae/model.py`](gvae/model.py)
+[![file](https://img.shields.io/badge/file-gvae%2Fmodel.py-2f3e46?style=flat-square)](gvae/model.py)
+[![role](https://img.shields.io/badge/role-model%20architecture-6c757d?style=flat-square)](gvae/model.py)
 
 Shared model-definition module used by the main training and SNP-prioritization scripts. This file defines the gVAE, Vanilla VAE, and beta-VAE architectures so that model training and biological interpretation use the same implementation.
 

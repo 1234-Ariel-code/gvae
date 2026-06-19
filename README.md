@@ -90,35 +90,6 @@ gvae/
 
 ---
 
-## Repository structure
-
-```text
-gvae/
-├── gvae/
-│   ├── __init__.py
-│   ├── model.py
-│   ├── metrics.py
-│   ├── gvae.py
-│   ├── gvae.slurm
-│   ├── snp_prioritization.py
-│   ├── latent_classification.py
-│   ├── gene-pathway_enrichment.py
-│   ├── gene-pathway_enrichment.slurm
-│   ├── build_target_support_table.py
-│   ├── gwas-xai.R
-│   └── gwas-xai.slurm
-├── README.md
-├── reproducibility.md
-├── requirements.txt
-├── environment.yml
-├── pyproject.toml
-├── Makefile
-├── CITATION.cff
-└── LICENSE
-```
-
----
-
 ## Main scripts and modules
 
 [![gvae/model.py](https://img.shields.io/badge/gvae%2Fmodel.py-model%20architecture-4f5d75?style=flat-square)](gvae/model.py)  

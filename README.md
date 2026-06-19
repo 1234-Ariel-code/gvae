@@ -71,117 +71,29 @@ gvae/
 
 ## Main scripts and modules
 
-### [![file](https://img.shields.io/badge/file-gvae%2Fmodel.py-2f3e46?style=flat-square)](gvae/model.py) [![role](https://img.shields.io/badge/role-model%20architecture-6c757d?style=flat-square)](gvae/model.py)
+[![gvae/model.py](https://img.shields.io/badge/gvae%2Fmodel.py-model%20architecture-4f5d75?style=flat-square)](gvae/model.py)  
+Shared model-definition module used by the training and SNP-prioritization workflows. Defines the gVAE, Vanilla VAE, and beta-VAE architectures.
 
-Shared model-definition module used by the main training and SNP-prioritization scripts. This file defines the gVAE, Vanilla VAE, and beta-VAE architectures so that model training and biological interpretation use the same implementation.
+[![gvae/metrics.py](https://img.shields.io/badge/gvae%2Fmetrics.py-metric%20utilities-4f5d75?style=flat-square)](gvae/metrics.py)  
+Shared evaluation utilities for reconstruction and prediction metrics, including MSE and R² summaries.
 
-Key components include:
+[![gvae/gvae.py](https://img.shields.io/badge/gvae%2Fgvae.py-main%20training%20script-4f5d75?style=flat-square)](gvae/gvae.py)  
+Main model-training script for the VAE/gVAE workflow, including training, reconstruction, robustness evaluation, and output generation.
 
-* dynamic encoder construction,
-* baseline decoder construction,
-* gVAE q25/q75 decoder construction,
-* posterior sampling and quantile-gated aggregation,
-* gVAE, Vanilla VAE, and beta-VAE model classes,
-* reconstruction and KL-regularized training steps.
+[![gvae/snp_prioritization.py](https://img.shields.io/badge/gvae%2Fsnp__prioritization.py-SNP%20attribution%20and%20XAI-4f5d75?style=flat-square)](gvae/snp_prioritization.py)  
+SHAP-based SNP prioritization pipeline linking latent variables back to input SNPs for downstream biological interpretation.
 
----
+[![gvae/latent_classification.py](https://img.shields.io/badge/gvae%2Flatent__classification.py-downstream%20prediction-4f5d75?style=flat-square)](gvae/latent_classification.py)  
+Evaluates VAE-derived and gVAE-derived latent features in downstream classification and regression tasks.
 
-### [`gvae/metrics.py`](gvae/metrics.py)
+[![gvae/gene-pathway_enrichment.py](https://img.shields.io/badge/gvae%2Fgene--pathway__enrichment.py-gene%20and%20pathway%20analysis-4f5d75?style=flat-square)](gvae/gene-pathway_enrichment.py)  
+Maps prioritized SNPs to genes and performs pathway enrichment and disease-gene relevance analysis.
 
-Shared evaluation utilities for reconstruction and prediction metrics. This avoids duplicated metric definitions across the main scripts.
+[![gvae/build_target_support_table.py](https://img.shields.io/badge/gvae%2Fbuild__target__support__table.py-target%20support%20tables-4f5d75?style=flat-square)](gvae/build_target_support_table.py)  
+Builds gene-level support tables from external disease-gene and drug-target resources.
 
-Key utilities include:
-
-* NaN handling,
-* mean squared error,
-* global R²,
-* flattened R²,
-* mean per-SNP R²,
-* median per-SNP R².
-
----
-
-### [`gvae/gvae.py`](gvae/gvae.py)
-
-Main model-training script for the VAE/gVAE architecture. This script trains the encoder-decoder model on genotype data and supports the dynamic latent-dimension and layer-depth configurations used in the manuscript.
-
-Key functions include:
-
-* genotype matrix loading,
-* VAE/gVAE model training,
-* reconstruction and KL-loss optimization,
-* model configuration across latent dimensions, posterior sample numbers, and layer depths,
-* robustness evaluation under input perturbation,
-* saving trained outputs and summary metrics for downstream analysis.
-
----
-
-### [`gvae/snp_prioritization.py`](gvae/snp_prioritization.py)
-
-SHAP-based SNP prioritization pipeline. This script links trained latent representations back to input SNPs by estimating SNP-level attributions for each latent variable.
-
-Key outputs include:
-
-* top SNPs per latent variable,
-* SHAP-like attribution summaries,
-* q25/q75 latent representation outputs,
-* SNP attribution files for downstream SNP-to-gene and pathway analyses.
-
----
-
-### [`gvae/latent_classification.py`](gvae/latent_classification.py)
-
-Downstream prediction script using VAE-derived and gVAE-derived latent features.
-
-This script trains a VAE encoder directly within the script, extracts latent features, and evaluates classification or regression performance using downstream neural prediction models.
-
-Supported feature types:
-
-* baseline VAE: posterior mean `mu`,
-* beta-VAE: posterior mean `mu` with beta-weighted KL training,
-* gVAE: q25/q75 posterior quantile features from multiple latent posterior samples.
-
-The script supports binary classification and quantitative-trait regression and writes summary metrics, histories, cached latent features, and optional plots.
-
----
-
-### [`gvae/gene-pathway_enrichment.py`](gvae/gene-pathway_enrichment.py)
-
-End-to-end SHAP-to-biology interpretation pipeline.
-
-This script connects prioritized SNPs to biological interpretation through:
-
-* SHAP SNP loading,
-* SNP-to-gene mapping,
-* optional chr:position to rsID bridging using BIM files,
-* Enrichr or GMT-based pathway enrichment,
-* LV-level pathway heatmaps,
-* LV bubble plots,
-* per-sample and pooled analyses,
-* DisGeNET gene-disease relevance scoring.
-
-For reproducibility, DisGeNET TSV mode is recommended. API mode is also supported when credentials are available.
-
----
-
-### [`gvae/build_target_support_table.py`](gvae/build_target_support_table.py)
-
-Utility script for building gene-level target-support tables. This script is used to summarize support between prioritized genes and external biological resources, such as disease-gene or drug-target annotations.
-
-Typical use cases include:
-
-* summarizing disease-relevant genes,
-* summarizing drug-target support,
-* preparing manuscript-ready support tables,
-* aggregating gene-level evidence across diseases or latent variables.
-
----
-
-### [`gvae/gwas-xai.R`](gvae/gwas-xai.R)
-
-R-based analysis script for comparing GWAS-ranked signals and gVAE-XAI-prioritized signals.
-
-This script supports gene-level and disease-level comparisons between GWAS-derived and gVAE-derived signals, including matched-budget analyses and summary visualizations.
+[![gvae/gwas-xai.R](https://img.shields.io/badge/gvae%2Fgwas--xai.R-GWAS%20vs%20gVAE--XAI%20comparison-4f5d75?style=flat-square)](gvae/gwas-xai.R)  
+R script for matched-budget comparison between GWAS-ranked signals and gVAE-XAI-prioritized signals.
 
 ---
 

@@ -1,5 +1,3 @@
-# gVAE Software Pipeline
-
 <p align="center">
   <strong>Configuration-driven genomic representation learning, SNP prioritization, and biological interpretation.</strong>
 </p>

@@ -344,13 +344,6 @@ Throughout the repository:
 
 In addition to the manuscript-facing implementation in [`gvae/`](gvae/), this repository includes a configuration-driven software pipeline in [`software/`](software/). The pipeline provides a simplified entry point for users who want to run selected gVAE analyses on their own data without manually calling each script.
 
-The software layer wraps the core manuscript implementation rather than duplicating it. This keeps the repository organized into a clear backend/frontend-style structure:
-
-```text
-gvae/        core model, XAI, prediction, enrichment, and manuscript scripts
-software/    user-facing configuration runner and analysis templates
-```
-
 ### What the software pipeline supports
 
 * **Model training** using the shared gVAE architecture.

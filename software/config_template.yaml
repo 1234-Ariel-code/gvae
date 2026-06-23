@@ -1,0 +1,101 @@
+# gVAE software pipeline configuration template
+#
+# Copy this file, update paths and parameters, then run:
+#   python software/gvae_pipeline.py --config software/my_analysis.yaml --steps smoke train xai
+#
+# To preview commands without executing them:
+#   python software/gvae_pipeline.py --config software/my_analysis.yaml --steps all --dry-run
+
+project:
+  # Optional. If omitted, the pipeline assumes the repository root is the parent
+  # directory of software/.
+  repo_root: .
+
+  # Optional executables. Leave blank to use the current Python interpreter and Rscript.
+  python:
+  rscript: Rscript
+
+analysis:
+  # Disease or trait label used in filenames and output summaries.
+  disease: T2D
+
+  # Core model configuration.
+  latent_dim: 100
+  num_samples: 150
+  num_layers: 4
+  epochs: 50
+  batch_size: 256
+
+  # Structured SNP filtering.
+  downsample_d: 50000
+  shap_top_k: 10
+
+  # Genotype and annotation paths.
+  # For BED input, provide the prefix without .bed/.bim/.fam.
+  bed_prefix: /path/to/plink/T2D
+  base_path: /path/to/genotype/files
+  tped_file: /path/to/genotype/files/T2D_origin.tped
+  bim_file: /path/to/plink/T2D.bim
+  gwas_assoc_path: /path/to/gwas/T2D_gwas.assoc
+
+  # Biological annotation resources.
+  s2g_path: /path/to/snp_to_gene.tsv
+  disgenet_tsv: /path/to/disgenet.tsv
+  disgenet_disease_name: type 2 diabetes
+
+  # Output directories.
+  model_output_dir: outputs/model
+  xai_output_dir: outputs/xai
+  prediction_output_dir: outputs/prediction
+  enrichment_output_dir: outputs/enrichment
+
+steps:
+  smoke:
+    # Optional additional commands for local checks.
+    extra_commands: []
+
+  train:
+    # feature_mode can be gwas_top or none.
+    feature_mode: gwas_top
+    output_dir: outputs/model
+    # Optional: override defaults from analysis.
+    # epochs: 50
+    # batch_size: 256
+    # beta: 4.0
+    # beta_list: "1.0,2.0,4.0"
+    extra_args: []
+
+  xai:
+    output_dir: outputs/xai
+    # Optional: override defaults from analysis.
+    # epochs: 20
+    # batch_size: 128
+    extra_args: []
+
+  predict:
+    model_type: gvae
+    feature_mode: gwas_top
+    cache_latents: true
+    make_plots: true
+    out_root: outputs/prediction
+    train_vae_epochs: 50
+    epochs: 120
+    vae_batch_size: 256
+    batch_size: 256
+    extra_args: []
+
+  enrich:
+    base_dir: outputs/xai
+    run_gene_analysis: true
+    disgenet_mode: tsv
+    out_root: outputs/enrichment
+    extra_args: []
+
+  gwas_xai:
+    script: gvae/gwas-xai.R
+    # Put R script arguments here if your local gwas-xai.R expects them.
+    # Example:
+    # extra_args:
+    #   - --input
+    #   - outputs/enrichment/some_file.csv
+    extra_args: []

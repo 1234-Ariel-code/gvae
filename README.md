@@ -187,17 +187,22 @@ The exact file paths should be adjusted in the command-line arguments or SLURM s
 
 <p align="center">
   <a href="software/gvae_pipeline.py">
-    <img src="https://img.shields.io/badge/pipeline-gvae__pipeline.py-555555?style=flat-square" alt="gVAE pipeline">
+    <img src="https://img.shields.io/badge/pipeline-gvae__pipeline.py-1f77b4?style=flat-square" alt="gVAE pipeline">
   </a>
   <a href="software/config_template.yaml">
-    <img src="https://img.shields.io/badge/config-template-666666?style=flat-square" alt="config template">
+    <img src="https://img.shields.io/badge/config-template-2ca02c?style=flat-square" alt="config template">
+  </a>
+  <a href="software/config_smoke_test.yaml">
+    <img src="https://img.shields.io/badge/smoke-test-ff7f0e?style=flat-square" alt="smoke test">
   </a>
   <a href="software/README.md">
-    <img src="https://img.shields.io/badge/docs-software%2FREADME.md-777777?style=flat-square" alt="software documentation">
+    <img src="https://img.shields.io/badge/docs-software%2FREADME.md-9467bd?style=flat-square" alt="software documentation">
   </a>
 </p>
 
 In addition to the manuscript-facing implementation in [`gvae/`](gvae/), this repository includes a configuration-driven software pipeline in [`software/`](software/). The pipeline provides a simplified entry point for users who want to run selected gVAE analyses on their own data without manually calling each script.
+
+The software layer wraps the core manuscript implementation rather than duplicating it. This keeps the repository organized into a clear backend/frontend-style structure:
 
 ```text
 gvae/        core model, XAI, prediction, enrichment, and manuscript scripts
@@ -215,13 +220,13 @@ software/    user-facing configuration runner and analysis templates
 
 ### Pipeline files
 
-[![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-workflow%20runner-555555?style=flat-square)](software/gvae_pipeline.py) <sub>Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison.</sub>
+[![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-workflow%20runner-1f77b4?style=flat-square)](software/gvae_pipeline.py) <sub>Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison.</sub>
 
-[![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-555555?style=flat-square)](software/config_template.yaml) <sub>Full configuration template for running user-defined gVAE analyses.</sub>
+[![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-2ca02c?style=flat-square)](software/config_template.yaml) <sub>Full configuration template for running user-defined gVAE analyses.</sub>
 
-[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-555555?style=flat-square)](software/config_smoke_test.yaml) <sub>Minimal configuration for checking installation, imports, and basic execution.</sub>
+[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-ff7f0e?style=flat-square)](software/config_smoke_test.yaml) <sub>Minimal configuration for checking installation, imports, and basic execution.</sub>
 
-[![software/README.md](https://img.shields.io/badge/software%2FREADME.md-software%20usage%20guide-555555?style=flat-square)](software/README.md) <sub>User-facing guide for configuring and running the gVAE software pipeline.</sub>
+[![software/README.md](https://img.shields.io/badge/software%2FREADME.md-software%20usage%20guide-9467bd?style=flat-square)](software/README.md) <sub>User-facing guide for configuring and running the gVAE software pipeline.</sub>
 
 ### Example usage
 

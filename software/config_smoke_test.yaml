@@ -1,0 +1,21 @@
+# Minimal configuration for checking installation and command-line availability.
+# This does not require real genotype files when used with --steps smoke.
+
+project:
+  repo_root: .
+  python:
+  rscript: Rscript
+
+analysis:
+  disease: TEST
+  latent_dim: 4
+  num_samples: 5
+  num_layers: 2
+  epochs: 2
+  batch_size: 16
+  downsample_d: 100
+  shap_top_k: 2
+
+steps:
+  smoke:
+    extra_commands: []

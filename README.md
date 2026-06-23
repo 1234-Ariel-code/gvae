@@ -363,7 +363,6 @@ software/    user-facing configuration runner and analysis templates
 ### Pipeline files
 
 [![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-workflow%20runner-1f77b4?style=flat-square)](software/gvae_pipeline.py) 
-
 <sub>Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison.</sub>
 
 [![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-2ca02c?style=flat-square)](software/config_template.yaml) 

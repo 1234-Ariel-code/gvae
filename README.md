@@ -179,6 +179,93 @@ The exact file paths should be adjusted in the command-line arguments or SLURM s
 
 ---
 
+## User-facing software pipeline
+
+<p align="center">
+  <strong>Run gVAE analyses from a single configuration file.</strong>
+</p>
+
+<p align="center">
+  <a href="software/gvae_pipeline.py">
+    <img src="https://img.shields.io/badge/pipeline-gvae__pipeline.py-555555?style=flat-square" alt="gVAE pipeline">
+  </a>
+  <a href="software/config_template.yaml">
+    <img src="https://img.shields.io/badge/config-template-666666?style=flat-square" alt="config template">
+  </a>
+  <a href="software/README.md">
+    <img src="https://img.shields.io/badge/docs-software%2FREADME.md-777777?style=flat-square" alt="software documentation">
+  </a>
+</p>
+
+In addition to the manuscript-facing implementation in [`gvae/`](gvae/), this repository includes a configuration-driven software pipeline in [`software/`](software/). The pipeline provides a simplified entry point for users who want to run selected gVAE analyses on their own data without manually calling each script.
+
+The software layer wraps the core manuscript implementation rather than duplicating it. This keeps the repository organized into a clear backend/frontend-style structure:
+
+```text
+gvae/        core model, XAI, prediction, enrichment, and manuscript scripts
+software/    user-facing configuration runner and analysis templates
+```
+
+### What the software pipeline supports
+
+* **Model training** using the shared gVAE architecture.
+* **SHAP-based SNP prioritization** from learned latent variables.
+* **Latent-space prediction** for classification or regression tasks.
+* **SNP-to-gene and pathway enrichment** for biological interpretation.
+* **GWAS-XAI matched-budget comparison** for benchmarking prioritized signals.
+* **Smoke tests** for installation, imports, and command-line interfaces.
+
+### Pipeline files
+
+[![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-workflow%20runner-555555?style=flat-square)](software/gvae_pipeline.py) <sub>Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison.</sub>
+
+[![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-555555?style=flat-square)](software/config_template.yaml) <sub>Full configuration template for running user-defined gVAE analyses.</sub>
+
+[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-555555?style=flat-square)](software/config_smoke_test.yaml) <sub>Minimal configuration for checking installation, imports, and basic execution.</sub>
+
+[![software/README.md](https://img.shields.io/badge/software%2FREADME.md-software%20usage%20guide-555555?style=flat-square)](software/README.md) <sub>User-facing guide for configuring and running the gVAE software pipeline.</sub>
+
+### Example usage
+
+Run selected steps:
+
+```bash
+python software/gvae_pipeline.py \
+  --config software/config_template.yaml \
+  --steps smoke train xai
+```
+
+Preview commands without running them:
+
+```bash
+python software/gvae_pipeline.py \
+  --config software/config_template.yaml \
+  --steps train xai enrich \
+  --dry-run
+```
+
+Run all configured steps:
+
+```bash
+python software/gvae_pipeline.py \
+  --config software/config_template.yaml \
+  --steps all
+```
+
+### Available pipeline steps
+
+```text
+smoke      check imports and command-line interfaces
+train      train gVAE models
+xai        run SHAP-based SNP prioritization
+predict    run latent-space classification or regression
+enrich     run SNP-to-gene, pathway, and disease-gene analysis
+gwas_xai   run GWAS versus gVAE-XAI matched-budget comparison
+all        run all configured steps in order
+```
+
+---
+
 ## Example workflows
 
 ### 1. Train gVAE model

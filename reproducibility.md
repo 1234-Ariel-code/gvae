@@ -307,9 +307,9 @@ target-support tables
 
 ---
 
-## 12. Recommended reviewer workflow
+## 12. Recommended user workflow
 
-A typical reviewer-facing workflow is:
+A typical user-facing workflow is:
 
 1. Create the computational environment.
 2. Run the quick smoke test.

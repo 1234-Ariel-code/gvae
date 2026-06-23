@@ -1,16 +1,11 @@
 # ============================================================
-
 # gVAE software pipeline configuration template
-
 # ============================================================
 
-#
 
 # Copy this file, edit paths and parameters, then run from the
 
 # repository root:
-
-#
 
 # python software/gvae_pipeline.py \
 

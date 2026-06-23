@@ -99,3 +99,390 @@ steps:
     #   - --input
     #   - outputs/enrichment/some_file.csv
     extra_args: []
+
+
+
+
+# ============================================================
+
+# gVAE software pipeline configuration template
+
+# ============================================================
+
+#
+
+# Copy this file, edit paths and parameters, then run from the
+
+# repository root:
+
+#
+
+# python software/gvae_pipeline.py \
+
+# --config software/my_analysis.yaml \
+
+# --steps smoke train xai
+
+#
+
+# Preview commands without executing them:
+
+#
+
+# python software/gvae_pipeline.py \
+
+# --config software/my_analysis.yaml \
+
+# --steps all \
+
+# --dry-run
+
+#
+
+# Run the full configured workflow:
+
+#
+
+# python software/gvae_pipeline.py \
+
+# --config software/my_analysis.yaml \
+
+# --steps all
+
+#
+
+# ============================================================
+
+# ------------------------------------------------------------
+
+# 1. Project-level settings
+
+# ------------------------------------------------------------
+
+project:
+
+# Repository root. Use "." when running from the root of the GitHub repo.
+
+# If omitted, the pipeline assumes the repo root is the parent directory
+
+# of software/.
+
+repo_root: .
+
+# Optional executables.
+
+# Leave python empty to use the currently active Python interpreter.
+
+python:
+
+# Rscript executable used for GWAS-XAI comparison.
+
+rscript: Rscript
+
+# ------------------------------------------------------------
+
+# 2. Main analysis settings
+
+# ------------------------------------------------------------
+
+analysis:
+
+# Disease or trait label used in filenames and output summaries.
+
+# Examples: T2D, ALZ, CAD, RA, BMI
+
+disease: T2D
+
+# Core gVAE model configuration.
+
+latent_dim: 100        # LD: latent dimensionality
+num_samples: 150       # NS: posterior samples used for q25/q75 aggregation
+num_layers: 4          # L: number of encoder/decoder hidden layers
+epochs: 50             # training epochs for model-training steps
+batch_size: 256        # mini-batch size
+
+# Structured SNP filtering.
+
+# This is GWAS-top filtering, not random SNP downsampling.
+
+downsample_d: 50000
+
+# Number of top SHAP-ranked SNPs retained per latent variable.
+
+# This is distinct from num_samples.
+
+shap_top_k: 10
+
+# ----------------------------------------------------------
+
+# Genotype and annotation paths
+
+# ----------------------------------------------------------
+
+# PLINK BED prefix for model training.
+
+# Provide the prefix without .bed/.bim/.fam.
+
+#
+
+# Example:
+
+# /path/to/plink/T2D.bed
+
+# /path/to/plink/T2D.bim
+
+# /path/to/plink/T2D.fam
+
+#
+
+# should be written as:
+
+# bed_prefix: /path/to/plink/T2D
+
+bed_prefix: /path/to/plink/T2D
+
+# Directory containing genotype CSV files used by XAI and prediction scripts.
+
+# Expected file example:
+
+# /path/to/genotype/files/T2D_filtered.csv
+
+base_path: /path/to/genotype/files
+
+# SNP-order alignment files.
+
+# TPED is commonly used for genotype CSV alignment.
+
+tped_file: /path/to/genotype/files/T2D_origin.tped
+
+# BIM file used for PLINK/BED alignment and SNP metadata.
+
+bim_file: /path/to/plink/T2D.bim
+
+# GWAS association file with SNP and P columns.
+
+gwas_assoc_path: /path/to/gwas/T2D_gwas.assoc
+
+# Optional phenotype file used by downstream prediction workflows.
+
+# Keep this path if your local latent_classification.py workflow expects it.
+
+phenotype_file: /path/to/genotype/files/T2D_origin.phen
+
+# ----------------------------------------------------------
+
+# Biological annotation resources
+
+# ----------------------------------------------------------
+
+# SNP-to-gene mapping table, such as cS2G.
+
+s2g_path: /path/to/snp_to_gene.tsv
+
+# Local DisGeNET TSV file. Recommended for reproducibility.
+
+disgenet_tsv: /path/to/disgenet.tsv
+
+# Disease name used for DisGeNET lookup/scoring.
+
+disgenet_disease_name: type 2 diabetes
+
+# Optional drug-target gene table used by GWAS-XAI support analyses.
+
+drug_target_file: /path/to/drug_target_gene_sets.tsv
+
+# ----------------------------------------------------------
+
+# GWAS-XAI comparison resources
+
+# ----------------------------------------------------------
+
+# Directory containing latent gene tables generated after XAI/enrichment.
+
+latent_root: outputs/enrichment
+
+# Directory containing GWAS summary TSV files.
+
+gwas_root: /path/to/GWAS-summary
+
+# Directory containing BIM files for diseases/traits.
+
+bim_root: /path/to/plink
+
+# Combined cS2G file used by the GWAS-XAI R script.
+
+cs2g_file: /path/to/combined_cS2G.tsv
+
+# Consolidated DisGeNET file used by the GWAS-XAI R script.
+
+disgenet_file: /path/to/consolidated_disgenet.tsv
+
+# ----------------------------------------------------------
+
+# Output directories
+
+# ----------------------------------------------------------
+
+model_output_dir: outputs/model
+xai_output_dir: outputs/xai
+prediction_output_dir: outputs/prediction
+enrichment_output_dir: outputs/enrichment
+gwas_xai_output_dir: outputs/gwas_xai
+
+# ------------------------------------------------------------
+
+# 3. Step-specific settings
+
+# ------------------------------------------------------------
+
+steps:
+
+# ----------------------------------------------------------
+
+# Smoke test
+
+# ----------------------------------------------------------
+
+smoke:
+# Optional additional commands for local checks.
+# Each command can be a list of tokens or a simple string.
+extra_commands: []
+
+# ----------------------------------------------------------
+
+# Model training
+
+# ----------------------------------------------------------
+
+train:
+# feature_mode can be:
+#   gwas_top : retain top GWAS-ranked SNPs
+#   none     : use all aligned SNPs
+feature_mode: gwas_top
+
+```
+output_dir: outputs/model
+
+# Optional overrides. If omitted, values from analysis are used.
+# epochs: 50
+# batch_size: 256
+
+# Optional beta-VAE settings.
+# beta: 4.0
+# beta_list: "1.0,2.0,4.0"
+
+# Additional command-line arguments passed directly to gvae.py.
+extra_args: []
+```
+
+# ----------------------------------------------------------
+
+# SHAP-based SNP prioritization
+
+# ----------------------------------------------------------
+
+xai:
+output_dir: outputs/xai
+
+```
+# Optional overrides. If omitted, values from analysis are used.
+# epochs: 20
+# batch_size: 128
+# shap_top_k: 10
+
+# Additional command-line arguments passed directly to snp_prioritization.py.
+extra_args: []
+```
+
+# ----------------------------------------------------------
+
+# Latent-space prediction
+
+# ----------------------------------------------------------
+
+predict:
+model_type: gvae
+
+```
+# feature_mode can be gwas_top or none.
+feature_mode: gwas_top
+
+# Cache latent features and generate plots.
+cache_latents: true
+make_plots: true
+
+# Output directory.
+out_root: outputs/prediction
+
+# VAE training used inside latent_classification.py.
+train_vae_epochs: 50
+vae_batch_size: 256
+
+# Downstream predictor training.
+epochs: 120
+batch_size: 256
+
+# Additional command-line arguments passed directly to latent_classification.py.
+extra_args: []
+```
+
+# ----------------------------------------------------------
+
+# SNP-to-gene and pathway enrichment
+
+# ----------------------------------------------------------
+
+enrich:
+# Input directory from the XAI step.
+base_dir: outputs/xai
+
+```
+# Run DisGeNET/disease-gene analysis.
+run_gene_analysis: true
+
+# Recommended for reproducibility.
+disgenet_mode: tsv
+
+# Output directory.
+out_root: outputs/enrichment
+
+# Additional command-line arguments passed directly to gene-pathway_enrichment.py.
+extra_args: []
+```
+
+# ----------------------------------------------------------
+
+# GWAS-XAI matched-budget comparison
+
+# ----------------------------------------------------------
+
+gwas_xai:
+# R script path.
+script: gvae/gwas-xai.R
+
+```
+# Mode expected by the R script.
+# Common values: cluster, local
+mode: cluster
+
+# The current pipeline can pass these through extra_args.
+# Keep paths synchronized with analysis above.
+extra_args:
+  - --mode
+  - cluster
+  - --latent_root
+  - outputs/enrichment
+  - --gwas_root
+  - /path/to/GWAS-summary
+  - --bim_root
+  - /path/to/plink
+  - --cs2g_file
+  - /path/to/combined_cS2G.tsv
+  - --disgenet_file
+  - /path/to/consolidated_disgenet.tsv
+  - --drug_target_file
+  - /path/to/drug_target_gene_sets.tsv
+  - --out_dir
+  - outputs/gwas_xai
+```
+

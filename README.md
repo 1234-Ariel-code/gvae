@@ -366,9 +366,9 @@ software/    user-facing configuration runner and analysis templates
 
 [![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-2ca02c?style=flat-square)](software/config_template.yaml) <sub>Full configuration template for running user-defined gVAE analyses.</sub>
 
-[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-ff7f0e?style=flat-square)](software/config_smoke_test.yaml)  <sub>Minimal configuration for checking installation, imports, and basic execution.</sub>
+[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-ff7f0e?style=flat-square)](software/config_smoke_test.yaml) <sub>Minimal configuration for checking installation, imports, and basic execution.</sub>
 
-[![software/README.md](https://img.shields.io/badge/software%2FREADME.md-software%20usage%20guide-9467bd?style=flat-square)](software/README.md)   <sub>User-facing guide for configuring and running the gVAE software pipeline.</sub>
+[![software/README.md](https://img.shields.io/badge/software%2FREADME.md-software%20usage%20guide-9467bd?style=flat-square)](software/README.md)  <sub>User-facing guide for configuring and running the gVAE software pipeline.</sub>
 
 ### Example usage
 

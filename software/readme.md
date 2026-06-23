@@ -51,12 +51,13 @@ The software pipeline supports the main analysis layers offered by gVAE:
 
 ## Pipeline files
 
-[![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-workflow%20runner-1f77b4?style=flat-square)](gvae_pipeline.py) <sub>Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison.</sub>
-
-[![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-full%20analysis%20template-2ca02c?style=flat-square)](config_template.yaml) <sub>Full configuration template for running user-defined gVAE analyses.</sub>
-
-[![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-smoke%20test%20template-ff7f0e?style=flat-square)](config_smoke_test.yaml) <sub>Minimal configuration for checking installation, imports, and command-line availability.</sub>
-
+| File                                                                                                                                                                    | Role                                                                                                      | Description                                                                                                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| [![software/gvae\_pipeline.py](https://img.shields.io/badge/software%2Fgvae__pipeline.py-file-555555?style=flat-square)](software/gvae_pipeline.py)                     | ![workflow runner](https://img.shields.io/badge/workflow-runner-1f77b4?style=flat-square)                 | Configuration-driven pipeline runner for training, SNP attribution, prediction, enrichment, and GWAS-XAI comparison. |
+| [![software/config\_template.yaml](https://img.shields.io/badge/software%2Fconfig__template.yaml-file-555555?style=flat-square)](software/config_template.yaml)         | ![full analysis template](https://img.shields.io/badge/full%20analysis-template-2ca02c?style=flat-square) | Full configuration template for running user-defined gVAE analyses.                                                  |
+| [![software/config\_smoke\_test.yaml](https://img.shields.io/badge/software%2Fconfig__smoke__test.yaml-file-555555?style=flat-square)](software/config_smoke_test.yaml) | ![smoke test template](https://img.shields.io/badge/smoke%20test-template-ff7f0e?style=flat-square)       | Minimal configuration for checking installation, imports, and basic execution.                                       |
+                                           |
+                                           
 ---
 
 ## Quick start
